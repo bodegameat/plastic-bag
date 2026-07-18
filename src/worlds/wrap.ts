@@ -1,6 +1,6 @@
 /** Toroidal wrap — one tile that repeats forever (globe topology, flat surface). */
 
-export const WORLD_SIZE = 540;
+export const WORLD_SIZE = 260;
 export const WORLD_HALF = WORLD_SIZE / 2;
 
 export function wrapCoord(v: number): number {

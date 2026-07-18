@@ -1,15 +1,15 @@
 import * as THREE from "three";
 import { ALT } from "../worlds/altitude";
-import { makeSmileTexture, makeTakeoutBagGeometry } from "../worlds/bagNpc";
+import { makeSmileTexture } from "../worlds/bagNpc";
 import type { Input } from "./Input";
 
-const RISE_SPEED = 4.5;
-const DROP_SPEED = 7.5;
-const HOVER_DAMP = 2.2;
+const RISE_SPEED = 7.2;
+const DROP_SPEED = 11;
+const HOVER_DAMP = 2.8;
 const MAX_ALTITUDE = ALT.MAX;
 
 /**
- * Single-mesh takeout bag — punched handle cutouts, yellow smiley, billow deform.
+ * Open-film shopping bag — front + back sheets (hollow), calm billow, U-tube handles.
  */
 export class Bag {
   readonly group = new THREE.Group();
@@ -18,7 +18,9 @@ export class Bag {
   snagged = false;
   windSpeed = 0;
 
-  private body!: THREE.Mesh;
+  private mesh!: THREE.Mesh;
+  private backMesh!: THREE.Mesh;
+  private handles!: THREE.Group;
   private basePositions!: Float32Array;
   private time = 0;
   private tumble = new THREE.Vector3();
@@ -38,13 +40,16 @@ export class Bag {
 
   setQuality(q: "mobile" | "desktop"): void {
     this.quality = q;
-    const mat = this.body.material as THREE.MeshPhysicalMaterial;
+    const mat = this.mesh.material as THREE.MeshPhysicalMaterial;
     if (q === "mobile") {
       mat.transmission = 0;
       mat.thickness = 0;
       mat.clearcoat = 0.15;
       mat.opacity = 0.82;
       mat.depthWrite = true;
+      const back = this.backMesh.material as THREE.MeshPhysicalMaterial;
+      back.transmission = 0;
+      back.opacity = 0.28;
     }
   }
 
@@ -87,7 +92,6 @@ export class Bag {
     else this._forward.normalize();
     this._right.crossVectors(this._forward, new THREE.Vector3(0, 1, 0)).normalize();
 
-    // Altitude gearing: zippy ground → floaty clouds → space coast
     const y = this.group.position.y;
     let gear = 1;
     let drag = 6;
@@ -102,10 +106,9 @@ export class Bag {
       drag = 4.5;
     }
 
-    // Fill = sail: puffed glides farther / faster; crumpled turns snappier + slower
-    const sail = 0.65 + this.fill * 0.55;
-    const turnSnap = 4 + (1 - this.fill) * 5;
-    const moveSpeed = 11 * gear * sail;
+    const sail = 0.72 + this.fill * 0.55;
+    const turnSnap = 5.5 + (1 - this.fill) * 6;
+    const moveSpeed = 19 * gear * sail;
 
     const nx = input.stickX;
     const ny = input.stickY;
@@ -120,12 +123,12 @@ export class Bag {
       this.velocity.z = THREE.MathUtils.damp(this.velocity.z, target.z, turnSnap, dt);
       this._coast.copy(this.velocity);
     } else {
-      const coastDrag = y > ALT.SPACE_LO ? 0.35 : y > 70 ? 0.9 : 1.8;
+      const coastDrag = y > ALT.SPACE_LO ? 0.28 : y > 70 ? 0.7 : 1.35;
       this.velocity.x = THREE.MathUtils.damp(this.velocity.x, 0, coastDrag, dt);
       this.velocity.z = THREE.MathUtils.damp(this.velocity.z, 0, coastDrag, dt);
       if (this.velocity.lengthSq() < 0.4) {
-        this.velocity.x += Math.sin(this.time * 1.3 + this.idlePhase) * 0.35 * dt;
-        this.velocity.z += Math.cos(this.time * 1.1 + this.idlePhase) * 0.35 * dt;
+        this.velocity.x += Math.sin(this.time * 1.3 + this.idlePhase) * 0.45 * dt;
+        this.velocity.z += Math.cos(this.time * 1.1 + this.idlePhase) * 0.45 * dt;
       }
       void drag;
     }
@@ -160,43 +163,78 @@ export class Bag {
   }
 
   private buildMesh(): void {
-    const geo = makeTakeoutBagGeometry(0.52);
+    const segs = 14;
+    const geo = new THREE.PlaneGeometry(1.15, 1.5, segs, Math.round(segs * 1.3));
     const pos = geo.attributes.position as THREE.BufferAttribute;
+    this.basePositions = new Float32Array(pos.array.length);
+    this.basePositions.set(pos.array as Float32Array);
+
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i);
       const y = pos.getY(i);
-      const z = pos.getZ(i);
-      const yn = Math.max(0, Math.min(1, y / 1.6));
-      const pinch = 1 - Math.max(0, yn - 0.55) * 0.12;
-      const belly = 1 + Math.sin(yn * Math.PI) * 0.1;
-      const wrinkle = Math.sin(x * 14 + y * 9) * 0.012 + Math.cos(z * 11 + y * 7) * 0.01;
-      pos.setXYZ(i, x * pinch * belly + wrinkle, y, z * belly + wrinkle * 0.5);
+      const edge = Math.abs(x) / 0.575;
+      const curl = edge * edge * 0.38;
+      const wrinkle = Math.sin(x * 16 + y * 10) * 0.01 + Math.sin(y * 22) * 0.006;
+      pos.setZ(i, curl + wrinkle);
+      if (y > 0.55) {
+        pos.setX(i, x * 0.55);
+        pos.setY(i, y + 0.08);
+        pos.setZ(i, 0.03 + wrinkle);
+      }
     }
     pos.needsUpdate = true;
     geo.computeVertexNormals();
 
-    this.basePositions = new Float32Array(pos.array.length);
-    this.basePositions.set(pos.array as Float32Array);
-
     const mat = new THREE.MeshPhysicalMaterial({
-      color: 0xf2efe6,
+      color: 0xece8de,
       transparent: true,
-      opacity: 0.72,
-      roughness: 0.28,
+      opacity: 0.78,
+      roughness: 0.24,
       metalness: 0,
-      transmission: 0.55,
-      thickness: 0.4,
-      ior: 1.4,
+      transmission: 0.5,
+      thickness: 0.32,
+      ior: 1.45,
       clearcoat: 0.55,
-      clearcoatRoughness: 0.25,
-      envMapIntensity: 1.1,
+      clearcoatRoughness: 0.22,
+      envMapIntensity: 1.2,
       side: THREE.DoubleSide,
       depthWrite: false,
     });
 
-    this.body = new THREE.Mesh(geo, mat);
-    this.body.castShadow = true;
-    this.group.add(this.body);
+    this.mesh = new THREE.Mesh(geo, mat);
+    this.mesh.castShadow = true;
+    this.group.add(this.mesh);
+
+    this.backMesh = this.mesh.clone();
+    this.backMesh.position.z = -0.08;
+    this.backMesh.scale.setScalar(0.97);
+    const backMat = (this.backMesh.material as THREE.MeshPhysicalMaterial).clone();
+    backMat.opacity = 0.32;
+    backMat.transmission = 0.28;
+    this.backMesh.material = backMat;
+    this.group.add(this.backMesh);
+
+    this.handles = new THREE.Group();
+    const handleMat = new THREE.MeshPhysicalMaterial({
+      color: 0xd8d4c8,
+      roughness: 0.35,
+      clearcoat: 0.4,
+      transparent: true,
+      opacity: 0.88,
+    });
+    for (const x of [-0.19, 0.19]) {
+      const curve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(x - 0.09, 0.55, 0.04),
+        new THREE.Vector3(x - 0.09, 0.88, 0.04),
+        new THREE.Vector3(x, 1.02, 0.04),
+        new THREE.Vector3(x + 0.09, 0.88, 0.04),
+        new THREE.Vector3(x + 0.09, 0.55, 0.04),
+      ]);
+      this.handles.add(
+        new THREE.Mesh(new THREE.TubeGeometry(curve, 12, 0.02, 5, false), handleMat),
+      );
+    }
+    this.group.add(this.handles);
 
     const face = new THREE.Mesh(
       new THREE.PlaneGeometry(0.5, 0.5),
@@ -204,11 +242,11 @@ export class Bag {
         map: makeSmileTexture(),
         transparent: true,
         depthWrite: false,
-        opacity: 0.92,
+        opacity: 0.94,
       }),
     );
-    face.position.set(0, 0.55, 0.28);
-    this.body.add(face);
+    face.position.set(0, 0.05, 0.1);
+    this.group.add(face);
   }
 
   private animateVisual(dt: number): void {
@@ -217,61 +255,67 @@ export class Bag {
     const t = this.time;
     const speed = this.windSpeed;
 
-    this.body.scale.set(0.85 + puffed * 0.35, 0.78 + puffed * 0.4, 0.75 + puffed * 0.45);
+    // Calm scale — breeze, not melting
+    const sx = 0.88 + puffed * 0.28;
+    const sy = 0.82 + puffed * 0.28;
+    const sz = 0.7 + puffed * 0.4;
+    this.mesh.scale.set(sx, sy, sz);
+    this.backMesh.scale.set(sx * 0.97, sy * 0.97, sz * 0.97);
+    this.handles.scale.setScalar(0.95 + puffed * 0.06);
+    this.handles.position.y = crumpled * -0.04;
 
-    const pos = this.body.geometry.attributes.position as THREE.BufferAttribute;
+    const pos = this.mesh.geometry.attributes.position as THREE.BufferAttribute;
     for (let i = 0; i < pos.count; i++) {
       const bx = this.basePositions[i * 3]!;
       const by = this.basePositions[i * 3 + 1]!;
       const bz = this.basePositions[i * 3 + 2]!;
-      const yn = Math.max(0, Math.min(1, by / 1.6));
-      const handleZone = yn > 0.72 ? 0.35 : 1;
-      const belly = 1 + Math.sin(yn * Math.PI) * 0.14 * puffed;
+      const edge = Math.min(1, Math.abs(bx) / 0.575);
+      const top = Math.max(0, (by - 0.4) / 0.45);
+
       const billow =
-        Math.sin(t * (2.4 + speed * 0.15) + by * 5 + bx * 3) *
-        (0.028 + puffed * 0.05 + crumpled * 0.04) *
-        handleZone;
+        Math.sin(t * (1.6 + speed * 0.08) + by * 3.5 + bx * 2) *
+        (0.022 + puffed * 0.035 + crumpled * 0.03);
       const flutter =
-        (Math.sin(t * 5.5 + i * 0.35) * crumpled * 0.05 +
-          Math.cos(t * 3.8 + bx * 8) * puffed * 0.025) *
-        handleZone;
-      const windRipple = Math.sin(t * 3 + by * 6 + speed) * speed * 0.003 * handleZone;
+        Math.sin(t * 3.2 + i * 0.25) * crumpled * 0.035 +
+        Math.cos(t * 2.2 + bx * 5) * puffed * 0.018;
+      const windRipple = Math.sin(t * 2.1 + by * 4 + speed * 0.3) * speed * 0.0025;
       const wrinkle =
-        (Math.sin(bx * 14 + by * 9 + t * 1.2) * 0.015 * (0.5 + crumpled) +
-          Math.cos(bz * 11 + by * 7 - t) * 0.012) *
-        handleZone;
+        Math.sin(bx * 10 + by * 7 + t * 1.1) * (0.008 + crumpled * 0.014) +
+        Math.cos(by * 11 - t * 0.8) * 0.006;
+      const flap = top * top * Math.sin(t * 4 + bx * 8) * 0.03 * (0.35 + crumpled);
+
       pos.setXYZ(
         i,
-        bx * belly + flutter * 0.35 + wrinkle,
-        by + billow * 0.35 + windRipple,
-        bz * belly + billow + flutter + wrinkle * 0.5,
+        bx + flutter * 0.25 * (0.35 + edge) + wrinkle * 0.25,
+        by + billow * 0.3 + windRipple * 0.3 + flap * 0.2,
+        bz * (0.85 + puffed * 0.25) + billow * 0.55 + flutter * 0.5 + wrinkle * 0.4 + flap * 0.5,
       );
     }
     pos.needsUpdate = true;
 
     this.normalFrame++;
-    if (this.normalFrame % (this.quality === "mobile" ? 6 : 2) === 0) {
-      this.body.geometry.computeVertexNormals();
+    if (this.normalFrame % (this.quality === "mobile" ? 6 : 3) === 0) {
+      this.mesh.geometry.computeVertexNormals();
     }
 
-    this.tumble.x += this.velocity.z * dt * 0.1 * crumpled;
-    this.tumble.z -= this.velocity.x * dt * 0.1 * crumpled;
-    const bank = 0.08 + puffed * 0.04;
+    this.tumble.x += this.velocity.z * dt * 0.08 * crumpled;
+    this.tumble.z -= this.velocity.x * dt * 0.08 * crumpled;
+    const bank = 0.08 + puffed * 0.035;
     const targetX =
-      THREE.MathUtils.clamp(this.velocity.z * bank, -0.55, 0.55) +
+      THREE.MathUtils.clamp(this.velocity.z * bank, -0.45, 0.45) +
       this.tumble.x * crumpled +
-      Math.sin(t * 0.9) * 0.04;
+      Math.sin(t * 0.8) * 0.035 * puffed;
     const targetZ =
-      THREE.MathUtils.clamp(-this.velocity.x * bank, -0.55, 0.55) + this.tumble.z * crumpled;
-    const targetY = Math.sin(t * 0.7) * 0.1 * puffed;
+      THREE.MathUtils.clamp(-this.velocity.x * bank, -0.45, 0.45) + this.tumble.z * crumpled;
+    const targetY = Math.sin(t * 0.6) * 0.08 * puffed;
 
     this.group.rotation.x = THREE.MathUtils.damp(this.group.rotation.x, targetX, 3, dt);
     this.group.rotation.z = THREE.MathUtils.damp(this.group.rotation.z, targetZ, 3, dt);
-    this.group.rotation.y = THREE.MathUtils.damp(this.group.rotation.y, targetY, 2, dt);
-    this.tumble.multiplyScalar(1 - dt * 0.8);
+    this.group.rotation.y = THREE.MathUtils.damp(this.group.rotation.y, targetY, 2.2, dt);
+    this.tumble.multiplyScalar(1 - dt * 0.85);
 
-    const mat = this.body.material as THREE.MeshPhysicalMaterial;
-    mat.opacity = 0.55 + puffed * 0.28;
-    if (this.quality === "desktop") mat.transmission = 0.35 + puffed * 0.35;
+    const mat = this.mesh.material as THREE.MeshPhysicalMaterial;
+    mat.opacity = 0.58 + puffed * 0.25;
+    if (this.quality === "desktop") mat.transmission = 0.3 + puffed * 0.28;
   }
 }

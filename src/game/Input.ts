@@ -12,6 +12,10 @@ export class Input {
 
   touchFill = false;
   touchCrumple = false;
+  /** -1…1 held spin (touch); keyboard Q/E adds on top each frame */
+  touchSpin = 0;
+  touchInteract = false;
+  private interactEdge = false;
 
   private touchStickX = 0;
   private touchStickY = 0;
@@ -56,6 +60,7 @@ export class Input {
     this.prevKeys = new Set(this.keys);
     this.aEdge = false;
     this.dEdge = false;
+    this.interactEdge = false;
     this.composeStick();
   }
 
@@ -80,6 +85,26 @@ export class Input {
 
   get crumple(): boolean {
     return this.keys.has("ShiftLeft") || this.keys.has("ShiftRight") || this.touchCrumple;
+  }
+
+  /** Camera yaw rate: -1…1 (Q left / E right / touch hold). */
+  get spin(): number {
+    let s = this.touchSpin;
+    if (this.keys.has("KeyQ")) s -= 1;
+    if (this.keys.has("KeyE")) s += 1;
+    return Math.max(-1, Math.min(1, s));
+  }
+
+  /** Rising edge: Enter when something is in range / mobile tap pulse. */
+  consumeInteract(): boolean {
+    const key = this.justPressed("Enter") || this.justPressed("NumpadEnter");
+    const touch = this.interactEdge;
+    this.interactEdge = false;
+    return key || touch;
+  }
+
+  pulseInteract(): void {
+    this.interactEdge = true;
   }
 
   /** Rising edges / touch wiggles for snag. */
@@ -131,5 +156,7 @@ export class Input {
     this.clearTouchStick();
     this.touchFill = false;
     this.touchCrumple = false;
+    this.touchSpin = 0;
+    this.touchInteract = false;
   };
 }

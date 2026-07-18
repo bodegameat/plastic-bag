@@ -41,44 +41,27 @@ function smileMap(): THREE.CanvasTexture {
 }
 
 /**
- * Single-mesh takeout bag — punched handle cutouts (stable silhouette).
- * Bottom at y≈0 for NPC placement.
+ * Soft takeout bag — pinched top, rounder belly. Bottom at y≈0.
  */
 export function makeTakeoutBagGeometry(depth = 0.48): THREE.BufferGeometry {
   const shape = new THREE.Shape();
-  // Body outline — bottom on y=0
-  shape.moveTo(-0.48, 0);
-  shape.lineTo(0.48, 0);
-  shape.lineTo(0.48, 1.04);
-  // Right handle (outer)
-  shape.lineTo(0.48, 1.17);
-  shape.quadraticCurveTo(0.38, 1.6, 0.14, 1.17);
-  shape.lineTo(0.14, 1.04);
-  // Center rim
-  shape.lineTo(-0.14, 1.04);
-  // Left handle (outer)
-  shape.lineTo(-0.14, 1.17);
-  shape.quadraticCurveTo(-0.38, 1.6, -0.48, 1.17);
-  shape.lineTo(-0.48, 0);
-
-  const rightHole = new THREE.Path();
-  rightHole.moveTo(0.2, 1.1);
-  rightHole.quadraticCurveTo(0.34, 1.44, 0.42, 1.1);
-  rightHole.closePath();
-  shape.holes.push(rightHole);
-
-  const leftHole = new THREE.Path();
-  leftHole.moveTo(-0.2, 1.1);
-  leftHole.quadraticCurveTo(-0.34, 1.44, -0.42, 1.1);
-  leftHole.closePath();
-  shape.holes.push(leftHole);
+  // Wider belly, pinched shoulders
+  shape.moveTo(-0.42, 0);
+  shape.quadraticCurveTo(-0.52, 0.15, -0.5, 0.45);
+  shape.quadraticCurveTo(-0.48, 0.85, -0.36, 1.05);
+  shape.lineTo(-0.28, 1.12);
+  shape.lineTo(0.28, 1.12);
+  shape.lineTo(0.36, 1.05);
+  shape.quadraticCurveTo(0.48, 0.85, 0.5, 0.45);
+  shape.quadraticCurveTo(0.52, 0.15, 0.42, 0);
+  shape.lineTo(-0.42, 0);
 
   const geo = new THREE.ExtrudeGeometry(shape, {
     depth,
     bevelEnabled: true,
-    bevelThickness: 0.02,
-    bevelSize: 0.02,
-    bevelSegments: 1,
+    bevelThickness: 0.03,
+    bevelSize: 0.03,
+    bevelSegments: 2,
     curveSegments: 10,
   });
   geo.translate(0, 0, -depth / 2);
@@ -117,6 +100,23 @@ export function makeBagNpc(
   body.castShadow = true;
   g.add(body);
 
+  const handleMat = new THREE.MeshLambertMaterial({
+    color: 0xd0c8b8,
+    flatShading: true,
+    transparent: true,
+    opacity: 0.9,
+  });
+  for (const x of [-0.16, 0.16]) {
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(x - 0.07, 1.0, 0.02),
+      new THREE.Vector3(x - 0.07, 1.28, 0.02),
+      new THREE.Vector3(x, 1.4, 0.02),
+      new THREE.Vector3(x + 0.07, 1.28, 0.02),
+      new THREE.Vector3(x + 0.07, 1.0, 0.02),
+    ]);
+    g.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 10, 0.016, 5, false), handleMat));
+  }
+
   if (opts.smile !== false) {
     const face = new THREE.Mesh(
       new THREE.PlaneGeometry(0.4, 0.4),
@@ -151,13 +151,20 @@ export function makeBagNpc(
   return g;
 }
 
-export function finalizeBagNpc(bag: THREE.Group): void {
+export function finalizeBagNpc(bag: THREE.Group, pin = false): void {
   const bob = bag.userData.bagBob as { baseY: number } | undefined;
   if (bob) bob.baseY = bag.position.y;
+  if (pin) {
+    bag.userData.physicsPin = true;
+    return;
+  }
+  const s = bag.scale.x || 1;
+  bag.userData.toyPhysics = { kind: "bag" as const, radius: 0.38 * s };
 }
 
 export function updateBagNpcs(root: THREE.Object3D, time: number): void {
   root.traverse((o) => {
+    if (o.userData.physicsBody) return;
     const bob = o.userData.bagBob as
       | { phase: number; speed: number; amp: number; lean: number; baseY: number }
       | undefined;

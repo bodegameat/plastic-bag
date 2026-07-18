@@ -153,14 +153,40 @@ body,
 
 .hud__world {
   position: absolute;
-  top: calc(1.25rem + var(--safe-t));
-  left: calc(1.25rem + var(--safe-l));
+  top: 28%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   font-family: "Fredoka", sans-serif;
   font-weight: 600;
-  font-size: clamp(1rem, 3vw, 1.2rem);
-  color: rgba(255, 248, 232, 0.9);
+  font-size: clamp(1.15rem, 4vw, 1.65rem);
+  color: rgba(255, 248, 232, 0.95);
   letter-spacing: 0.02em;
-  text-shadow: 0 2px 0 rgba(26, 48, 64, 0.35), 0 1px 12px rgba(0, 0, 0, 0.35);
+  text-align: center;
+  text-shadow: 0 2px 0 rgba(26, 48, 64, 0.4), 0 4px 24px rgba(0, 0, 0, 0.45);
+  max-width: min(90vw, 22rem);
+  line-height: 1.15;
+  transition: opacity 0.35s ease, transform 0.35s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  pointer-events: none;
+}
+
+.hud__world strong {
+  font-weight: 600;
+}
+
+.hud__world span {
+  font-family: "Nunito", sans-serif;
+  font-weight: 600;
+  font-size: 0.72em;
+  opacity: 0.75;
+  letter-spacing: 0.04em;
+}
+
+.hud__world--hidden {
+  opacity: 0;
+  transform: translate(-50%, -40%);
 }
 
 .hud__hint {
@@ -260,7 +286,43 @@ body,
   bottom: calc(1.5rem + var(--safe-b));
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  align-items: flex-end;
+  gap: 0.55rem;
+}
+
+.touch-spin-row {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.touch-btn--spin {
+  width: 58px;
+  height: 58px;
+}
+
+.interact-hint {
+  position: absolute;
+  left: 50%;
+  bottom: calc(5.5rem + var(--safe-b));
+  transform: translateX(-50%) scale(0.92);
+  padding: 0.45rem 1rem;
+  border-radius: 999px;
+  background: rgba(18, 24, 36, 0.72);
+  border: 1px solid rgba(255, 232, 160, 0.45);
+  color: #ffe8a0;
+  font-family: "Fredoka", system-ui, sans-serif;
+  font-weight: 600;
+  font-size: 0.85rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.interact-hint.is-on {
+  opacity: 1;
+  transform: translateX(-50%) scale(1);
 }
 
 .touch-btn {

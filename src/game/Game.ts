@@ -19,11 +19,18 @@ import { FireworkSky } from "../worlds/fireworks";
 import { TOY } from "../worlds/nature";
 import { SpaceRocket } from "../worlds/spaceRocket";
 import { Starfield } from "../worlds/starfield";
+import { scatterPunProps } from "../worlds/props";
+import { PUN_POI } from "../worlds/punScenes";
+import { ZonePopups } from "../worlds/zonePopups";
+import { BagBubbles } from "../worlds/bagBubbles";
+import { FunShows } from "../worlds/funShows";
+import { wrapDist } from "../worlds/wrap";
 import { Bag } from "./Bag";
+import { BagTrail } from "./BagTrail";
 import { CameraController } from "./CameraController";
 import { Input } from "./Input";
 import { TouchControls } from "./TouchControls";
-import { TrashFriends } from "./TrashFriends";
+import { ToyPhysics } from "./ToyPhysics";
 
 export class Game {
   private renderer: THREE.WebGLRenderer;
@@ -34,7 +41,7 @@ export class Game {
   private input = new Input();
   private touch!: TouchControls;
   private bag = new Bag();
-  private trash: TrashFriends;
+  private physics = new ToyPhysics();
   private clouds!: CloudField;
   private breeze!: BreezeParticles;
   private fireworks!: FireworkSky;
@@ -51,16 +58,23 @@ export class Game {
   private ambient!: THREE.AmbientLight;
   private hemi!: THREE.HemisphereLight;
   private currentZoneId: WorldId = "suburban";
-  private hudLabel = "";
   private muted = false;
   private camDir = new THREE.Vector3();
   private fogColor = new THREE.Color();
   private tmpColorA = new THREE.Color();
-  private onWorldName?: (name: string) => void;
+  private zonePopups: ZonePopups | null = null;
+  private bagBubbles: BagBubbles | null = null;
+  private funShows = new FunShows();
+  private propsReady = false;
+  private bagTrail = new BagTrail(56);
+  private raycaster = new THREE.Raycaster();
+  private pointer = new THREE.Vector2();
+  private canvas: HTMLCanvasElement;
   private isMobile =
     window.matchMedia("(pointer: coarse)").matches || window.innerWidth < 900;
 
   constructor(canvas: HTMLCanvasElement) {
+    this.canvas = canvas;
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: !this.isMobile,
@@ -111,7 +125,6 @@ export class Game {
 
     this.bag.setQuality(this.isMobile ? "mobile" : "desktop");
 
-    this.trash = new TrashFriends(this.scene);
     this.clouds = new CloudField(this.isMobile ? 28 : 48);
     this.breeze = new BreezeParticles(this.isMobile ? 80 : 140);
     this.fireworks = new FireworkSky();
@@ -123,6 +136,7 @@ export class Game {
     this.scene.add(this.rocket.group);
     this.scene.add(this.stars.points);
     this.scene.add(this.bag.group);
+    this.scene.add(this.bagTrail.points);
     this.clock.connect(document);
     this.loadAdventure();
 
@@ -131,11 +145,12 @@ export class Game {
       onCamera: () => this.cam.toggleCinematic(),
     });
 
+    this.canvas.addEventListener("pointerdown", this.onCanvasPointer);
     window.addEventListener("resize", this.onResize);
   }
 
-  setCallbacks(cb: { onWorldName?: (name: string) => void }): void {
-    this.onWorldName = cb.onWorldName;
+  setCallbacks(_cb: { onWorldName?: (name: string) => void }): void {
+    // Zone titles live in world space now (ZonePopups)
   }
 
   async unlockAudio(): Promise<void> {
@@ -169,9 +184,9 @@ export class Game {
     window.addEventListener("keydown", kick);
   }
 
-  private toggleMute(): void {
+    private toggleMute(): void {
     this.muted = !this.muted;
-    if (this.stems.toggleMute() !== this.muted) this.stems.toggleMute();
+    this.stems.toggleMute();
   }
 
   getWorldId(): WorldId {
@@ -182,28 +197,63 @@ export class Game {
     this.running = false;
     this.input.dispose();
     this.stems.dispose();
+    this.physics.dispose();
     this.clock.dispose();
+    this.canvas.removeEventListener("pointerdown", this.onCanvasPointer);
     window.removeEventListener("resize", this.onResize);
     this.composer?.dispose();
     this.renderer.dispose();
   }
 
+  /** Mobile: tap the special prop. Desktop uses Enter when in range. */
+  private onCanvasPointer = (e: PointerEvent): void => {
+    if (!this.running || !this.isMobile || !this.propsReady) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest?.("#touch-ui")) return;
+
+    const rect = this.canvas.getBoundingClientRect();
+    this.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    this.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const hits = this.raycaster.intersectObject(this.adventure.group, true);
+    for (const hit of hits) {
+      const root = this.physics.resolveTracked(hit.object);
+      if (!root?.userData.funInteract || root.userData.funBusy) continue;
+      const range = (root.userData.pokeRange as number | undefined) ?? 11;
+      const wp = new THREE.Vector3();
+      root.getWorldPosition(wp);
+      const d = wrapDist(wp.x, wp.z, this.bag.position.x, this.bag.position.z);
+      if (d > range) continue;
+      if (this.funShows.trigger(root)) this.cam.bump(0.28);
+      return;
+    }
+  };
+
   private loadAdventure(): void {
     this.adventure = buildAdventureWorld(this.isMobile);
     this.scene.add(this.adventure.group);
 
+    this.zonePopups = new ZonePopups(this.adventure.zones);
+    this.scene.add(this.zonePopups.group);
+
+    this.bagBubbles = new BagBubbles();
+    this.scene.add(this.bagBubbles.group);
+    this.scene.add(this.funShows.group);
+
     this.bag.group.position.copy(this.adventure.spawn);
+    this.bag.group.userData.isPlayer = true;
     this.bag.velocity.set(0, 0, 0);
-    this.trash.scatter();
-    this.trash.seedAt([
-      { x: 0, z: 0, y: this.adventure.heightAt(0, 0) + 2 },
-      { x: 30, z: 30, y: this.adventure.heightAt(30, 30) + 2 },
-      { x: -60, z: 40, y: this.adventure.heightAt(-60, 40) + 2 },
-      { x: 70, z: -70, y: this.adventure.heightAt(70, -70) + 2 },
-    ]);
     this.applyZone(this.adventure.zones[0]!, true);
-    this.onWorldName?.(this.adventure.zones[0]!.name);
     this.adventure.update(0, 0, this.bag.position, 160, 0);
+    this.physics.collect(this.adventure.group);
+    this.physics.settle(12);
+    this.bagBubbles.collect(this.adventure.group);
+    void scatterPunProps(this.adventure.group, PUN_POI).then(() => {
+      this.physics.collect(this.adventure.group);
+      this.physics.settle(28);
+      this.bagBubbles?.collect(this.adventure.group);
+      this.propsReady = true;
+    });
   }
 
   private setupComposer(): void {
@@ -231,6 +281,7 @@ export class Game {
     const dt = Math.min(0.05, this.clock.getDelta());
     const time = this.clock.getElapsed();
 
+    this.input.beginFrame();
     if (this.input.justPressed("KeyC")) this.cam.toggleCinematic();
     if (this.input.justPressed("KeyM")) this.toggleMute();
 
@@ -239,13 +290,33 @@ export class Game {
     const sp = spaceAmount(this.bag.altitudeY);
 
     this.adventure.update(dt, time, this.bag.position, fogFar, sp);
+    const updateProps = this.adventure.group.userData.updateProps as
+      | ((t: number) => void)
+      | undefined;
+    updateProps?.(time);
     this.blendAtmosphere(dt);
 
     this.bag.setGroundY(this.adventure.heightAt(this.bag.position.x, this.bag.position.z));
 
     this.camera.getWorldDirection(this.camDir);
     this.bag.update(dt, this.input, this.camDir);
-    this.trash.update(dt, this.bag, time);
+    this.bagTrail.update(dt, this.bag.position, this.bag.windSpeed);
+    this.physics.syncPlayer(this.bag.position, this.bag.velocity);
+    this.physics.update(dt, this.bag.position);
+
+    if (this.propsReady && this.input.consumeInteract()) {
+      const near = this.physics.nearestInteractable(this.bag.position);
+      if (near && this.funShows.trigger(near.mesh)) {
+        this.cam.bump(0.28);
+      }
+    }
+    this.cam.applySpin(this.input.spin, dt);
+
+    const canInteract =
+      this.propsReady && !!this.physics.nearestInteractable(this.bag.position);
+    this.touch.setCanInteract(canInteract, this.isMobile);
+
+    this.funShows.update(dt);
 
     const showSkyStuff = sp < 0.4;
     this.clouds.group.visible = showSkyStuff;
@@ -285,13 +356,8 @@ export class Game {
       this.currentZoneId = zone.id;
     }
 
-    let label = zone.name;
-    if (fw > 0.55) label = "Baby, you're a firework";
-    else if (sp > 0.55) label = "Blue Origin of Species";
-    if (label !== this.hudLabel) {
-      this.hudLabel = label;
-      this.onWorldName?.(label);
-    }
+    this.zonePopups?.update(dt, this.bag.position, this.camera, time, { fw, sp });
+    this.bagBubbles?.update(dt, this.bag.position, this.camera);
 
     this.stems.update({
       altitudeY: this.bag.altitudeY,
@@ -349,8 +415,8 @@ export class Game {
     }
 
     exposure = Math.max(0.9, exposure || 1.05);
-    fogNear = Math.max(28, fogNear || 40);
-    fogFar = Math.max(fogNear + 40, fogFar || 160);
+    fogNear = Math.max(12, fogNear || 24);
+    fogFar = Math.max(fogNear + 50, fogFar || 160);
     if (this.fogColor.r + this.fogColor.g + this.fogColor.b < 0.15) {
       this.fogColor.setHex(TOY.fog);
     }

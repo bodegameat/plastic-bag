@@ -2,7 +2,7 @@ import type { Input } from "./Input";
 
 /**
  * On-screen joystick + hold buttons for mobile / touch.
- * Visible whenever the device has coarse pointer or is narrow.
+ * Interact is context-only: tap the object in-world (Game raycast).
  */
 export class TouchControls {
   private root: HTMLElement;
@@ -10,6 +10,9 @@ export class TouchControls {
   private knob: HTMLElement;
   private fillBtn: HTMLElement;
   private crumpleBtn: HTMLElement;
+  private spinLBtn: HTMLElement;
+  private spinRBtn: HTMLElement;
+  private interactHint: HTMLElement | null;
   private wiggleHint: HTMLElement;
   private activeId: number | null = null;
   private originX = 0;
@@ -35,6 +38,9 @@ export class TouchControls {
     this.knob = document.querySelector("#touch-knob")!;
     this.fillBtn = document.querySelector("#touch-fill")!;
     this.crumpleBtn = document.querySelector("#touch-crumple")!;
+    this.spinLBtn = document.querySelector("#touch-spin-l")!;
+    this.spinRBtn = document.querySelector("#touch-spin-r")!;
+    this.interactHint = document.querySelector("#interact-hint");
     this.wiggleHint = document.querySelector("#touch-wiggle")!;
 
     const isTouch =
@@ -56,6 +62,12 @@ export class TouchControls {
     this.bindHold(this.crumpleBtn, (v) => {
       this.input.touchCrumple = v;
     });
+    this.bindHold(this.spinLBtn, (v) => {
+      this.input.touchSpin = v ? -1 : this.spinRBtn.classList.contains("is-active") ? 1 : 0;
+    });
+    this.bindHold(this.spinRBtn, (v) => {
+      this.input.touchSpin = v ? 1 : this.spinLBtn.classList.contains("is-active") ? -1 : 0;
+    });
 
     document.querySelector("#touch-mute")?.addEventListener(
       "pointerdown",
@@ -74,7 +86,6 @@ export class TouchControls {
       { passive: false },
     );
 
-    // Prevent page scroll / pinch while playing
     this.root.addEventListener(
       "touchmove",
       (e) => {
@@ -82,6 +93,14 @@ export class TouchControls {
       },
       { passive: false },
     );
+  }
+
+  /** Show contextual interact prompt when something is in range. */
+  setCanInteract(can: boolean, mobile: boolean): void {
+    if (!this.interactHint) return;
+    this.interactHint.hidden = !can;
+    this.interactHint.textContent = mobile ? "tap it" : "enter";
+    this.interactHint.classList.toggle("is-on", can);
   }
 
   setSnagged(snagged: boolean): void {
@@ -117,8 +136,7 @@ export class TouchControls {
       this.moveStick(e.clientX, e.clientY);
     };
 
-    const onEnd = (e: PointerEvent): void => {
-      if (e.pointerId !== this.activeId) return;
+    const onEnd = (): void => {
       this.activeId = null;
       this.knob.style.transform = "translate(-50%, -50%)";
       this.input.clearTouchStick();
@@ -140,7 +158,7 @@ export class TouchControls {
     }
     this.knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
     const x = dx / this.maxRadius;
-    const y = -dy / this.maxRadius; // screen up → stickY+
+    const y = -dy / this.maxRadius;
     this.input.setTouchStick(x, y);
   }
 
@@ -151,10 +169,9 @@ export class TouchControls {
       el.classList.add("is-active");
       set(true);
     };
-    const up = (e: PointerEvent): void => {
+    const up = (): void => {
       el.classList.remove("is-active");
       set(false);
-      void e;
     };
     el.addEventListener("pointerdown", down);
     el.addEventListener("pointerup", up);

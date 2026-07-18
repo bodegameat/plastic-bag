@@ -9,13 +9,11 @@ const hudSnag = document.querySelector<HTMLElement>("#hud-snag");
 
 const game = new Game(canvas);
 
-game.setCallbacks({
-  onWorldName: (name) => {
-    hudWorld.textContent = name;
-  },
-});
+game.setCallbacks({});
 
 if (hudSnag) hudSnag.hidden = true;
+hudWorld.classList.add("hud__world--hidden");
+hudWorld.setAttribute("aria-hidden", "true");
 
 let booting = false;
 

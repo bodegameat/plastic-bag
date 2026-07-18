@@ -33,14 +33,15 @@
       </div>
 
       <div id="hud" class="hud hud--hidden" aria-hidden="true">
-        <div class="hud__world" id="hud-world">Suburban Street</div>
+        <div class="hud__world hud__world--hidden" id="hud-world"></div>
         <div class="hud__hint hud__hint--desktop" id="hud-hint">
-          WASD / arrows move · Space rise · Shift drop · explore — the world wraps forever
+          WASD move · Space rise · Shift drop · Q/E spin · Enter = gag prop · world wraps forever
         </div>
         <div class="hud__hint hud__hint--mobile">
-          drag to move · ↑ rise · ↓ drop · explore any direction
+          drag · ↑↓ · spin · tap the special prop · explore
         </div>
         <div class="hud__snag" id="hud-snag" hidden></div>
+        <div id="interact-hint" class="interact-hint" hidden>enter</div>
       </div>
 
       <div id="touch-ui" class="touch-ui touch-ui--hidden" aria-hidden="true">
@@ -49,6 +50,16 @@
         </div>
 
         <div class="touch-actions">
+          <div class="touch-spin-row">
+            <button type="button" id="touch-spin-l" class="touch-btn touch-btn--spin" aria-label="Spin left">
+              <span>↺</span>
+              <small>spin</small>
+            </button>
+            <button type="button" id="touch-spin-r" class="touch-btn touch-btn--spin" aria-label="Spin right">
+              <span>↻</span>
+              <small>spin</small>
+            </button>
+          </div>
           <button type="button" id="touch-crumple" class="touch-btn touch-btn--crumple" aria-label="Crumple">
             <span>↓</span>
             <small>drop</small>
