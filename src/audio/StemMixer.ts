@@ -16,8 +16,8 @@ export interface StemState {
  */
 export class StemMixer {
   private started = false;
-  private unlocked = false;
   private muted = false;
+  private graphReady = false;
 
   private bed!: Tone.Player;
   private stems: {
@@ -32,11 +32,23 @@ export class StemMixer {
   private reverb!: Tone.Reverb;
   private bedGain!: Tone.Gain;
 
-  /** Must run in the same user-gesture turn (especially iOS). */
+  /** Must run in a user-gesture turn (especially iOS). Safe to call often. */
   async unlock(): Promise<void> {
-    if (this.unlocked) return;
+    await this.ensureRunning();
+  }
+
+  /** Resume AudioContext + start any loaded players that aren't running yet. */
+  async resume(): Promise<void> {
+    await this.ensureRunning();
+    this.kickPlayers();
+  }
+
+  private async ensureRunning(): Promise<void> {
     await Tone.start();
-    this.unlocked = true;
+    const raw = Tone.getContext().rawContext;
+    if (raw.state === "suspended") {
+      await raw.resume();
+    }
   }
 
   async init(): Promise<void> {
@@ -57,6 +69,11 @@ export class StemMixer {
     const bust = `?v=${Date.now()}`;
     await this.bed.load(`/music/T1.mp3${bust}`);
     this.bed.connect(this.bedGain);
+    this.graphReady = true;
+
+    // Start bed as soon as T1 is ready — don't wait on T2–T5
+    await this.ensureRunning();
+    this.kickPlayers();
 
     const stemDefs = [
       { id: "T2", url: `/music/T2.mp3${bust}` },
@@ -65,24 +82,41 @@ export class StemMixer {
       { id: "T5", url: `/music/T5.mp3${bust}` },
     ];
 
-    for (const def of stemDefs) {
-      const gain = new Tone.Gain(0);
-      gain.connect(this.filter);
-      const player = new Tone.Player({ loop: true, fadeIn: 1.0, fadeOut: 1.4 });
-      await player.load(def.url);
-      player.connect(gain);
-      this.stems.push({ id: def.id, player, gain, target: 0 });
-    }
+    const loaded = await Promise.all(
+      stemDefs.map(async (def) => {
+        const gain = new Tone.Gain(0);
+        gain.connect(this.filter);
+        const player = new Tone.Player({ loop: true, fadeIn: 1.0, fadeOut: 1.4 });
+        await player.load(def.url);
+        player.connect(gain);
+        return { id: def.id, player, gain, target: 0 };
+      }),
+    );
+    this.stems = loaded;
+    this.kickPlayers();
   }
 
   async start(): Promise<void> {
-    if (this.started) return;
-    if (!this.unlocked) await Tone.start();
-    this.unlocked = true;
+    await this.ensureRunning();
+    this.kickPlayers();
+  }
+
+  private kickPlayers(): void {
+    if (!this.graphReady || !this.bed) return;
     const now = Tone.now();
-    this.bed.start(now);
-    for (const s of this.stems) s.player.start(now + 0.05);
-    this.started = true;
+    try {
+      if (this.bed.loaded && this.bed.state !== "started") {
+        this.bed.start(now);
+      }
+      for (const s of this.stems) {
+        if (s.player.loaded && s.player.state !== "started") {
+          s.player.start(now + 0.05);
+        }
+      }
+      this.started = true;
+    } catch {
+      /* iOS: start while suspended — next gesture resume() retries */
+    }
   }
 
   update(state: StemState): void {

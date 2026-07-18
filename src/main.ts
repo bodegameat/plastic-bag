@@ -28,6 +28,8 @@ const begin = async (): Promise<void> => {
     // Unlock AudioContext in the same tap/gesture (required on iOS)
     await game.unlockAudio();
     await game.initAudio();
+    // Resume again before play — context often suspends during the long load
+    game.resumeAudio();
     splash.classList.add("splash--gone");
     hud.classList.remove("hud--hidden");
     hud.setAttribute("aria-hidden", "false");

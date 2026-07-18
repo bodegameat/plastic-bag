@@ -146,12 +146,27 @@ export class Game {
     await this.stems.init();
   }
 
+  /** Call from any user gesture — resumes iOS AudioContext if it suspended. */
+  resumeAudio(): void {
+    void this.stems.resume();
+  }
+
   async start(): Promise<void> {
     await this.stems.start();
     this.running = true;
+    this.armAudioResumeGestures();
     this.touch.show();
     this.clock.reset();
     this.loop();
+  }
+
+  private armAudioResumeGestures(): void {
+    const kick = (): void => {
+      this.resumeAudio();
+    };
+    window.addEventListener("pointerdown", kick, { passive: true });
+    window.addEventListener("touchstart", kick, { passive: true });
+    window.addEventListener("keydown", kick);
   }
 
   private toggleMute(): void {
