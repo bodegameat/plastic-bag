@@ -1,0 +1,61 @@
+{
+  "tempo": 124,
+  "samples": [
+    {
+      "id": "doyoueverfeel",
+      "file": "placeholders/doyoueverfeel.wav",
+      "beats": 4,
+      "type": "vocal",
+      "label": "do you ever feel"
+    },
+    {
+      "id": "doyou",
+      "file": "placeholders/doyou.wav",
+      "beats": 1,
+      "type": "vocal",
+      "label": "do you"
+    },
+    {
+      "id": "likeaplasticbag",
+      "file": "placeholders/likeaplasticbag.wav",
+      "beats": 4,
+      "type": "vocal",
+      "label": "like a plastic bag"
+    },
+    {
+      "id": "fullphrase",
+      "file": "placeholders/fullphrase.wav",
+      "beats": 8,
+      "type": "vocal",
+      "label": "do you ever feel like a plastic bag"
+    },
+    {
+      "id": "loop_a",
+      "file": "placeholders/loop_a.wav",
+      "beats": 8,
+      "type": "loop",
+      "label": "instrumental loop a"
+    },
+    {
+      "id": "loop_b",
+      "file": "placeholders/loop_b.wav",
+      "beats": 8,
+      "type": "loop",
+      "label": "instrumental loop b"
+    },
+    {
+      "id": "pad_warm",
+      "file": "placeholders/pad_warm.wav",
+      "beats": 16,
+      "type": "texture",
+      "label": "warm pad"
+    },
+    {
+      "id": "pad_air",
+      "file": "placeholders/pad_air.wav",
+      "beats": 16,
+      "type": "texture",
+      "label": "air texture"
+    }
+  ]
+}

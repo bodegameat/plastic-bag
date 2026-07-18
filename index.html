@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <title>do you ever feel, like a plastic bag</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600&family=Nunito:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="game-canvas"></canvas>
+
+      <div id="splash" class="splash">
+        <div class="splash__atmosphere" aria-hidden="true"></div>
+        <div class="splash__content">
+          <h1 class="splash__title">
+            do you ever feel,<br />
+            <em>like a plastic bag</em>
+          </h1>
+          <p class="splash__prompt">tap to drift</p>
+        </div>
+      </div>
+
+      <div id="hud" class="hud hud--hidden" aria-hidden="true">
+        <div class="hud__world" id="hud-world">Suburban Street</div>
+        <div class="hud__hint hud__hint--desktop" id="hud-hint">
+          WASD / arrows move · Space rise · Shift drop · explore — the world wraps forever
+        </div>
+        <div class="hud__hint hud__hint--mobile">
+          drag to move · ↑ rise · ↓ drop · explore any direction
+        </div>
+        <div class="hud__snag" id="hud-snag" hidden></div>
+      </div>
+
+      <div id="touch-ui" class="touch-ui touch-ui--hidden" aria-hidden="true">
+        <div id="touch-stick" class="touch-stick" aria-label="Move">
+          <div id="touch-knob" class="touch-stick__knob"></div>
+        </div>
+
+        <div class="touch-actions">
+          <button type="button" id="touch-crumple" class="touch-btn touch-btn--crumple" aria-label="Crumple">
+            <span>↓</span>
+            <small>drop</small>
+          </button>
+          <button type="button" id="touch-fill" class="touch-btn touch-btn--fill" aria-label="Fill">
+            <span>↑</span>
+            <small>rise</small>
+          </button>
+        </div>
+
+        <div class="touch-utils">
+          <button type="button" id="touch-cam" class="touch-util" aria-label="Camera">cam</button>
+          <button type="button" id="touch-mute" class="touch-util" aria-label="Mute">mute</button>
+        </div>
+
+        <div id="touch-wiggle" class="touch-wiggle" hidden></div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
