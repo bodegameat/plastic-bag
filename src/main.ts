@@ -25,6 +25,8 @@ const begin = async (): Promise<void> => {
   splash.querySelector(".splash__prompt")!.textContent = "inflating…";
 
   try {
+    // Unlock AudioContext in the same tap/gesture (required on iOS)
+    await game.unlockAudio();
     await game.initAudio();
     splash.classList.add("splash--gone");
     hud.classList.remove("hud--hidden");

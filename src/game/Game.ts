@@ -138,6 +138,10 @@ export class Game {
     this.onWorldName = cb.onWorldName;
   }
 
+  async unlockAudio(): Promise<void> {
+    await this.stems.unlock();
+  }
+
   async initAudio(): Promise<void> {
     await this.stems.init();
   }

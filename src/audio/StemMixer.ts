@@ -16,6 +16,7 @@ export interface StemState {
  */
 export class StemMixer {
   private started = false;
+  private unlocked = false;
   private muted = false;
 
   private bed!: Tone.Player;
@@ -30,6 +31,13 @@ export class StemMixer {
   private filter!: Tone.Filter;
   private reverb!: Tone.Reverb;
   private bedGain!: Tone.Gain;
+
+  /** Must run in the same user-gesture turn (especially iOS). */
+  async unlock(): Promise<void> {
+    if (this.unlocked) return;
+    await Tone.start();
+    this.unlocked = true;
+  }
 
   async init(): Promise<void> {
     this.master = new Tone.Gain(0.9);
@@ -69,7 +77,8 @@ export class StemMixer {
 
   async start(): Promise<void> {
     if (this.started) return;
-    await Tone.start();
+    if (!this.unlocked) await Tone.start();
+    this.unlocked = true;
     const now = Tone.now();
     this.bed.start(now);
     for (const s of this.stems) s.player.start(now + 0.05);
