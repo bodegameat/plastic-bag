@@ -34,11 +34,58 @@
 
       <div id="hud" class="hud hud--hidden" aria-hidden="true">
         <div class="hud__world hud__world--hidden" id="hud-world"></div>
+
+        <!-- Bag Check Passport & Breeze Compass Top Bar -->
+        <div class="hud__topbar">
+          <button type="button" id="passport-btn" class="passport-pill" aria-label="Open Bag Check Passport">
+            <span class="passport-pill__badge">BAG CHECK</span>
+            <span id="passport-zones" class="passport-pill__stat">1 / 17 zones</span>
+            <span class="passport-pill__sep">·</span>
+            <span id="passport-gags" class="passport-pill__stat">0 / 17 gags</span>
+          </button>
+
+          <div id="breeze-compass" class="breeze-compass" title="Nearest undiscovered pun hub">
+            <span id="compass-arrow" class="breeze-compass__arrow">↑</span>
+            <span id="compass-label" class="breeze-compass__label">Bag-squiat</span>
+          </div>
+
+          <div id="altitude-pill" class="altitude-pill">Meadow Breeze</div>
+
+          <button type="button" id="postcard-btn" class="postcard-toggle" aria-label="Toggle Postcard Frame">
+            postcard [P]
+          </button>
+        </div>
+
+        <!-- Souvenir Postcard Frame Overlay -->
+        <div id="postcard-frame" class="postcard-frame" hidden>
+          <div class="postcard-frame__border">
+            <div class="postcard-frame__stamp">AIR MAIL · POLYETHYLENE</div>
+            <div class="postcard-frame__caption">
+              <strong id="postcard-title">Greetings from Bag-squiat</strong>
+              <span id="postcard-blurb">basquiat, but make it polyethylene</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bag Check Stamp Book Modal -->
+        <div id="passport-modal" class="passport-modal" hidden>
+          <div class="passport-modal__card">
+            <div class="passport-modal__header">
+              <div>
+                <h2 class="passport-modal__title">Bag Check Stamp Book</h2>
+                <p class="passport-modal__sub">Click any discovered stamp to catch a gust there</p>
+              </div>
+              <button type="button" id="passport-close" class="passport-modal__close" aria-label="Close">✕</button>
+            </div>
+            <div id="passport-grid" class="passport-grid"></div>
+          </div>
+        </div>
+
         <div class="hud__hint hud__hint--desktop" id="hud-hint">
-          WASD move · Space rise · Shift drop · Q/E spin · Enter = gag prop · world wraps forever
+          WASD move · Space rise · Shift drop · F puff-dash · G static-cling · Enter gag · Tab passport · P postcard
         </div>
         <div class="hud__hint hud__hint--mobile">
-          drag · ↑↓ · spin · tap the special prop · explore
+          drag · ↑↓ · boost · cling · tap the special prop · explore
         </div>
         <div class="hud__snag" id="hud-snag" hidden></div>
         <div id="interact-hint" class="interact-hint" hidden>enter</div>
@@ -50,6 +97,16 @@
         </div>
 
         <div class="touch-actions">
+          <div class="touch-spin-row">
+            <button type="button" id="touch-dash" class="touch-btn touch-btn--spin" aria-label="Puff Dash">
+              <span>💨</span>
+              <small>boost</small>
+            </button>
+            <button type="button" id="touch-grab" class="touch-btn touch-btn--spin" aria-label="Static Cling">
+              <span>🧲</span>
+              <small>cling</small>
+            </button>
+          </div>
           <div class="touch-spin-row">
             <button type="button" id="touch-spin-l" class="touch-btn touch-btn--spin" aria-label="Spin left">
               <span>↺</span>

@@ -151,9 +151,14 @@ export function makeBagNpc(
   return g;
 }
 
+const npcBobRegistry: THREE.Group[] = [];
+
 export function finalizeBagNpc(bag: THREE.Group, pin = false): void {
   const bob = bag.userData.bagBob as { baseY: number } | undefined;
   if (bob) bob.baseY = bag.position.y;
+  if (!npcBobRegistry.includes(bag)) {
+    npcBobRegistry.push(bag);
+  }
   if (pin) {
     bag.userData.physicsPin = true;
     return;
@@ -162,17 +167,18 @@ export function finalizeBagNpc(bag: THREE.Group, pin = false): void {
   bag.userData.toyPhysics = { kind: "bag" as const, radius: 0.38 * s };
 }
 
-export function updateBagNpcs(root: THREE.Object3D, time: number): void {
-  root.traverse((o) => {
-    if (o.userData.physicsBody) return;
+export function updateBagNpcs(_root: THREE.Object3D, time: number): void {
+  for (let i = 0; i < npcBobRegistry.length; i++) {
+    const o = npcBobRegistry[i]!;
+    if (!o.parent || o.userData.physicsBody) continue;
     const bob = o.userData.bagBob as
       | { phase: number; speed: number; amp: number; lean: number; baseY: number }
       | undefined;
-    if (!bob) return;
+    if (!bob) continue;
     o.position.y = bob.baseY + Math.sin(time * bob.speed + bob.phase) * bob.amp;
     o.rotation.z = Math.sin(time * bob.speed * 0.65 + bob.phase) * bob.lean;
     o.rotation.x = Math.sin(time * bob.speed * 0.4 + bob.phase) * bob.lean * 0.5;
-  });
+  }
 }
 
 export { BAG_COLORS };

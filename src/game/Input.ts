@@ -16,6 +16,11 @@ export class Input {
   touchSpin = 0;
   touchInteract = false;
   private interactEdge = false;
+  private dashEdge = false;
+  private grabEdge = false;
+  private passportEdge = false;
+  private postcardEdge = false;
+  private lastSpaceDownAt = 0;
 
   private touchStickX = 0;
   private touchStickY = 0;
@@ -61,6 +66,10 @@ export class Input {
     this.aEdge = false;
     this.dEdge = false;
     this.interactEdge = false;
+    this.dashEdge = false;
+    this.grabEdge = false;
+    this.passportEdge = false;
+    this.postcardEdge = false;
     this.composeStick();
   }
 
@@ -107,6 +116,54 @@ export class Input {
     this.interactEdge = true;
   }
 
+  /** Puff-Dash boost (F key, double-tap Space, or mobile boost button). */
+  consumeDash(): boolean {
+    const key = this.justPressed("KeyF");
+    const edge = this.dashEdge;
+    this.dashEdge = false;
+    return key || edge;
+  }
+
+  pulseDash(): void {
+    this.dashEdge = true;
+  }
+
+  /** Static-cling grab / drop (G key or mobile cling button). */
+  consumeGrab(): boolean {
+    const key = this.justPressed("KeyG");
+    const edge = this.grabEdge;
+    this.grabEdge = false;
+    return key || edge;
+  }
+
+  pulseGrab(): void {
+    this.grabEdge = true;
+  }
+
+  /** Toggle Bag Check Passport (Tab / B key or HUD badge tap). */
+  consumePassport(): boolean {
+    const key = this.justPressed("Tab") || this.justPressed("KeyB");
+    const edge = this.passportEdge;
+    this.passportEdge = false;
+    return key || edge;
+  }
+
+  pulsePassport(): void {
+    this.passportEdge = true;
+  }
+
+  /** Toggle Postcard Photo Mode (P key or HUD button). */
+  consumePostcard(): boolean {
+    const key = this.justPressed("KeyP");
+    const edge = this.postcardEdge;
+    this.postcardEdge = false;
+    return key || edge;
+  }
+
+  pulsePostcard(): void {
+    this.postcardEdge = true;
+  }
+
   /** Rising edges / touch wiggles for snag. */
   consumeWiggle(): number {
     let n = 0;
@@ -140,11 +197,20 @@ export class Input {
   }
 
   private onDown = (e: KeyboardEvent): void => {
-    if (e.code === "Space" || e.code.startsWith("Arrow")) e.preventDefault();
+    if (e.code === "Space" || e.code === "Tab" || e.code.startsWith("Arrow")) e.preventDefault();
     const was = this.keys.has(e.code);
     this.keys.add(e.code);
     if (!was && e.code === "KeyA") this.aEdge = true;
     if (!was && e.code === "KeyD") this.dEdge = true;
+    if (!was && e.code === "Space") {
+      const now = performance.now();
+      if (now - this.lastSpaceDownAt < 270) {
+        this.dashEdge = true;
+        this.lastSpaceDownAt = 0;
+      } else {
+        this.lastSpaceDownAt = now;
+      }
+    }
   };
 
   private onUp = (e: KeyboardEvent): void => {

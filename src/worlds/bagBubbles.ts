@@ -9,6 +9,33 @@ type Bubble = {
   scale: number;
   vel: number;
   show: boolean;
+  excitedTimer: number;
+};
+
+const REACTION_LINES = {
+  bump: [
+    "watch the handles!",
+    "my receipt!!",
+    "hey! i'm delicate!",
+    "crinkle rage!",
+    "double bag me!",
+    "excuse your gusset!",
+  ],
+  dash: [
+    "whoa, gusty!!",
+    "slow down turbo!",
+    "my groceries!",
+    "static cling!!",
+    "category 5 bag!",
+  ],
+  gag: [
+    "10/10 drift!",
+    "do a flip!!",
+    "encore! encore!",
+    "iconic behavior!",
+    "plastic pride!",
+    "absolute cinema!",
+  ],
 };
 
 /** Casual chat — deliberately different voice from zone title cards. */
@@ -66,8 +93,29 @@ export class BagBubbles {
       card.visible = false;
       card.scale.setScalar(0.001);
       this.group.add(card);
-      this.bubbles.push({ bag: o, card, line, scale: 0, vel: 0, show: false });
+      this.bubbles.push({ bag: o, card, line, scale: 0, vel: 0, show: false, excitedTimer: 0 });
     });
+  }
+
+  /** Make nearby NPC bags react with funny outraged or cheering speech bubbles! */
+  exciteNear(
+    worldPos: THREE.Vector3,
+    radius = 9.5,
+    reason: "bump" | "dash" | "gag" = "bump",
+  ): void {
+    const pool = REACTION_LINES[reason];
+    for (const b of this.bubbles) {
+      if (!b.bag.parent) continue;
+      b.bag.getWorldPosition(this._wp);
+      const d = wrapDist(worldPos.x, worldPos.z, this._wp.x, this._wp.z);
+      if (d > radius) continue;
+      const newLine = pool[this.nextLine++ % pool.length]!;
+      updateBubbleTexture(b.card, newLine, true);
+      b.excitedTimer = 2.6;
+      b.show = true;
+      b.vel = 13;
+      b.scale = Math.max(b.scale, 0.35);
+    }
   }
 
   update(dt: number, bagPos: THREE.Vector3, camera: THREE.Camera): void {
@@ -79,9 +127,16 @@ export class BagBubbles {
         b.card.visible = false;
         continue;
       }
+      if (b.excitedTimer > 0) {
+        b.excitedTimer -= dtC;
+        if (b.excitedTimer <= 0) {
+          updateBubbleTexture(b.card, b.line, false);
+        }
+      }
+
       b.bag.getWorldPosition(this._wp);
       const dist = wrapDist(bagPos.x, bagPos.z, this._wp.x, this._wp.z);
-      const want = dist < (b.show ? 7.5 : 5.5);
+      const want = b.excitedTimer > 0 || dist < (b.show ? 7.5 : 5.5);
 
       if (want && !b.show) {
         b.show = true;
@@ -132,14 +187,27 @@ function nearestPun(x: number, z: number): PunId {
 
 /** Soft comic bubble — rounded, warm fill, handwritten weight. */
 function makeBubble(text: string): THREE.Mesh {
-  const w = 320;
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(2.15, 1.05),
+    new THREE.MeshBasicMaterial({
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }),
+  );
+  updateBubbleTexture(mesh, text, false);
+  return mesh;
+}
+
+function updateBubbleTexture(mesh: THREE.Mesh, text: string, excited: boolean): void {
+  const w = 340;
   const h = 160;
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext("2d")!;
 
-  // Soft pastel pill (not the dark zone-card look)
   const r = 36;
   ctx.beginPath();
   ctx.moveTo(r, 18);
@@ -151,29 +219,22 @@ function makeBubble(text: string): THREE.Mesh {
   ctx.arcTo(18, h - 36, 18, 18, r);
   ctx.arcTo(18, 18, w - 18, 18, r);
   ctx.closePath();
-  ctx.fillStyle = "rgba(255, 236, 210, 0.94)";
+  ctx.fillStyle = excited ? "rgba(255, 224, 140, 0.97)" : "rgba(255, 236, 210, 0.94)";
   ctx.fill();
-  ctx.strokeStyle = "rgba(90, 55, 40, 0.35)";
-  ctx.lineWidth = 3;
+  ctx.strokeStyle = excited ? "rgba(180, 50, 30, 0.65)" : "rgba(90, 55, 40, 0.35)";
+  ctx.lineWidth = excited ? 4.5 : 3;
   ctx.stroke();
 
-  ctx.fillStyle = "#4a3028";
-  ctx.font = `600 34px "Nunito", system-ui, sans-serif`;
+  ctx.fillStyle = excited ? "#7a1818" : "#4a3028";
+  ctx.font = `${excited ? 700 : 600} 32px "Nunito", system-ui, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(text, w / 2, h * 0.4, w - 48);
+  ctx.fillText(text, w / 2, h * 0.4, w - 44);
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-
-  return new THREE.Mesh(
-    new THREE.PlaneGeometry(2.0, 1.0),
-    new THREE.MeshBasicMaterial({
-      map: tex,
-      transparent: true,
-      opacity: 0,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    }),
-  );
+  const mat = mesh.material as THREE.MeshBasicMaterial;
+  mat.map?.dispose();
+  mat.map = tex;
+  mat.needsUpdate = true;
 }

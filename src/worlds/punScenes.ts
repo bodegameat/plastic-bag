@@ -2,7 +2,16 @@ import * as THREE from "three";
 import type { WorldId } from "../audio/types";
 import type { SnagPoint } from "../game/SnagSystem";
 import { finalizeBagNpc, makeBagNpc, BAG_GROUND_CLEAR } from "./bagNpc";
-import { makeBillboard, tagChunk } from "./landmarks";
+import {
+  makeBillboard,
+  makeChalkBurst,
+  makeDiscoBall,
+  makeFireworkStand,
+  makeHurricaneDebris,
+  makeLyricScrap,
+  makeRocketInTree,
+  tagChunk,
+} from "./landmarks";
 import { terrainHeight } from "./terrain";
 
 type Poi = { x: number; z: number };
@@ -351,6 +360,11 @@ function placeSquiat(
   });
   addBag(g, poi, 3.5, 3, { color: 0xffe0e8, scale: 0.9 });
   addBag(g, poi, 5, 1.5, { color: 0xe0f0ff, scale: 0.85 });
+  const chalk = makeChalkBurst(-1.5, 2.2);
+  g.add(chalk);
+  const scrap = makeLyricScrap("do you ever feel");
+  sit(scrap, 1.8, 3.4, poi, 0.08);
+  g.add(scrap);
   snags.push({ position: new THREE.Vector3(poi.x, terrainHeight(poi.x, poi.z) + 2, poi.z), radius: 3 });
 }
 
@@ -400,6 +414,9 @@ function placeBunny(
   const stage = new THREE.Mesh(new THREE.BoxGeometry(8, 0.55, 5), toyMat(0x302038));
   sit(stage, 0, -1, poi, 0.35);
   g.add(stage);
+  const disco = makeDiscoBall();
+  sit(disco, 0, -1, poi, 2.2);
+  g.add(disco);
   const star = addBag(g, poi, 0, -1.5, { color: 0xffe0f0, scale: 1.3, sash: "BAG", yOff: 0.85, pin: true });
   updaters.push((_dt, time) => {
     star.rotation.z = Math.sin(time * 4) * 0.12;
@@ -536,6 +553,12 @@ function placeWindbag(
     });
     asleep.rotation.x = 0.85;
   }
+  const debris = makeHurricaneDebris(8, poi.z);
+  sit(debris.group, -8, -6, poi, 0);
+  g.add(debris.group);
+  const scrap = makeLyricScrap("after a hurricane");
+  sit(scrap, 3.2, 2.4, poi, 0.08);
+  g.add(scrap);
   snags.push({ position: new THREE.Vector3(poi.x, terrainHeight(poi.x, poi.z) + 2, poi.z), radius: 3 });
 }
 
@@ -571,6 +594,9 @@ function placeSleeping(parent: THREE.Group, poi: Poi, snags: SnagPoint[]): void 
     });
     inner.rotation.z = 0.15;
   }
+  const stuckRocket = makeRocketInTree();
+  sit(stuckRocket, 4.2, -2.5, poi, 0);
+  g.add(stuckRocket);
   snags.push({ position: new THREE.Vector3(poi.x, terrainHeight(poi.x, poi.z) + 1, poi.z), radius: 3 });
 }
 
@@ -769,6 +795,10 @@ function placeFuture(
     flameR.scale.set(s, 1, s);
     driver.rotation.z = Math.sin(time * 8) * 0.05;
   });
+  const fwStand = makeFireworkStand();
+  sit(fwStand, -7.5, -5.5, poi, 0);
+  fwStand.rotation.y = 0.45;
+  g.add(fwStand);
   snags.push({ position: new THREE.Vector3(poi.x, terrainHeight(poi.x, poi.z) + 2, poi.z), radius: 3 });
 }
 

@@ -294,6 +294,8 @@ export function makeLyricScrap(text: string): THREE.Mesh {
   return scrap;
 }
 
+const chunkRegistry: THREE.Group[] = [];
+
 /** Chunk with origin for distance show/hide (wrap-aware). */
 export function tagChunk(group: THREE.Group, origin: THREE.Vector3, radius = 160, terrainAnchor = false): void {
   group.userData.chunk = {
@@ -302,16 +304,20 @@ export function tagChunk(group: THREE.Group, origin: THREE.Vector3, radius = 160
     logical: origin.clone(),
     terrainAnchor,
   };
+  if (!chunkRegistry.includes(group)) {
+    chunkRegistry.push(group);
+  }
 }
 
 export function updateChunks(
-  root: THREE.Group,
+  _root: THREE.Group,
   bagPos: THREE.Vector3,
   loadDist = 220,
   unloadDist = 300,
 ): void {
-  root.traverse((obj) => {
-    if (!obj.userData.chunk || obj === root) return;
+  for (let i = 0; i < chunkRegistry.length; i++) {
+    const obj = chunkRegistry[i]!;
+    if (!obj.parent) continue;
     const chunk = obj.userData.chunk as {
       origin: THREE.Vector3;
       radius: number;
@@ -332,5 +338,5 @@ export function updateChunks(
     const d = Math.sqrt(bestD);
     if (d < loadDist + chunk.radius * 0.25) obj.visible = true;
     else if (d > unloadDist + chunk.radius * 0.25) obj.visible = false;
-  });
+  }
 }
