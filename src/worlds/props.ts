@@ -5,6 +5,7 @@ import type { FunKind } from "./funShows";
 
 const loader = new GLTFLoader();
 const cache = new Map<string, THREE.Group>();
+const inFlight = new Map<string, Promise<THREE.Group>>();
 
 /** Flat files in /public/props/*.glb */
 export type GlbId =
@@ -58,27 +59,37 @@ async function loadGlb(id: GlbId): Promise<THREE.Group> {
   const hit = cache.get(id);
   if (hit) return hit.clone(true);
 
-  const gltf = await loader.loadAsync(`/props/${id}.glb`);
-  const root = gltf.scene;
-  root.traverse((c) => {
-    if (c instanceof THREE.Mesh) {
-      c.castShadow = true;
-      c.receiveShadow = true;
-    }
-  });
+  let pending = inFlight.get(id);
+  if (!pending) {
+    pending = (async () => {
+      const gltf = await loader.loadAsync(`/props/${id}.glb`);
+      const root = gltf.scene;
+      root.traverse((c) => {
+        if (c instanceof THREE.Mesh) {
+          c.castShadow = true;
+          c.receiveShadow = true;
+        }
+      });
 
-  const box = new THREE.Box3().setFromObject(root);
-  const size = new THREE.Vector3();
-  box.getSize(size);
-  const maxDim = Math.max(size.x, size.y, size.z) || 1;
-  root.scale.setScalar(1 / maxDim);
-  box.setFromObject(root);
-  root.position.y -= box.min.y;
+      const box = new THREE.Box3().setFromObject(root);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      const maxDim = Math.max(size.x, size.y, size.z) || 1;
+      root.scale.setScalar(1 / maxDim);
+      box.setFromObject(root);
+      root.position.y -= box.min.y;
 
-  const wrap = new THREE.Group();
-  wrap.add(root);
-  cache.set(id, wrap);
-  return wrap.clone(true);
+      const wrap = new THREE.Group();
+      wrap.add(root);
+      cache.set(id, wrap);
+      inFlight.delete(id);
+      return wrap;
+    })();
+    inFlight.set(id, pending);
+  }
+
+  const base = await pending;
+  return base.clone(true);
 }
 
 /** Seat on terrain using world bbox after scale is applied. */
@@ -105,6 +116,7 @@ export async function placeGlb(
     float?: boolean;
     /** Scene's one special Enter/tap gag. */
     fun?: FunKind;
+    punId?: string;
   } = {},
 ): Promise<THREE.Group | null> {
   try {
@@ -130,6 +142,7 @@ export async function placeGlb(
     if (opts.fun) {
       mesh.userData.funInteract = true;
       mesh.userData.funKind = opts.fun;
+      mesh.userData.punId = opts.punId;
       mesh.userData.pokeRange = 11;
       mesh.userData.pokeStrength = 0;
     }
@@ -149,27 +162,29 @@ export async function scatterPunProps(
 ): Promise<void> {
   const jobs: Promise<unknown>[] = [
     placeGlb(root, "easel", poi.squiat.x + 2.8, poi.squiat.z - 1.2, {
-      scale: 3.2, fun: "spinout",
+      scale: 3.2, fun: "spinout", punId: "squiat",
     }),
     placeGlb(root, "paintkit", poi.squiat.x - 1.8, poi.squiat.z + 1.8, { scale: 2.2 }),
     placeGlb(root, "paintkit", poi.squiat.x + 1.2, poi.squiat.z + 2.4, { scale: 1.8 }),
     placeGlb(root, "plant", poi.squiat.x - 4, poi.squiat.z - 2, { scale: 2.0 }),
 
     placeGlb(root, "trashcan", poi.plasticOnly.x + 3.5, poi.plasticOnly.z - 2.5, {
-      scale: 2.4, fun: "spinout",
+      scale: 2.4, fun: "spinout", punId: "plasticOnly",
     }),
     placeGlb(root, "trashbin", poi.plasticOnly.x - 3.8, poi.plasticOnly.z - 2.2, { scale: 2.0 }),
     placeGlb(root, "cardboard", poi.plasticOnly.x + 2, poi.plasticOnly.z + 3, { scale: 2.2 }),
+    placeGlb(root, "can", poi.plasticOnly.x - 1.5, poi.plasticOnly.z + 2.2, { scale: 1.1 }),
 
     placeGlb(root, "boombox", poi.bunny.x - 2.4, poi.bunny.z - 1.5, {
-      scale: 2.8, rotY: 0.4, fun: "hop",
+      scale: 2.8, rotY: 0.4, fun: "hop", punId: "bunny",
     }),
     placeGlb(root, "microphone", poi.bunny.x + 1.2, poi.bunny.z - 0.8, { scale: 3.6 }),
     placeGlb(root, "floorlight", poi.bunny.x - 2.8, poi.bunny.z - 2.2, { scale: 2.0, rotY: 0.5 }),
     placeGlb(root, "floorlight", poi.bunny.x + 2.8, poi.bunny.z - 2.2, { scale: 2.0, rotY: -0.5 }),
+    placeGlb(root, "icecream", poi.bunny.x + 3.8, poi.bunny.z + 2.2, { scale: 1.4 }),
 
     placeGlb(root, "microphone", poi.notorious.x + 1.6, poi.notorious.z - 1.3, {
-      scale: 5.0, rotY: -0.4, yOff: 0.2, fun: "micdrop",
+      scale: 5.0, rotY: -0.4, yOff: 0.2, fun: "micdrop", punId: "notorious",
     }),
     placeGlb(root, "boombox", poi.notorious.x - 1.8, poi.notorious.z - 1.5, {
       scale: 4.0, rotY: 0.55, yOff: 0.2,
@@ -178,9 +193,11 @@ export async function scatterPunProps(
     placeGlb(root, "skateboard", poi.notorious.x + 2.6, poi.notorious.z + 1.8, {
       scale: 2.6, rotY: 1.1,
     }),
+    placeGlb(root, "pizza", poi.notorious.x + 2.8, poi.notorious.z - 0.4, { scale: 1.3 }),
+    placeGlb(root, "pizzabox", poi.notorious.x + 3.4, poi.notorious.z + 0.4, { scale: 1.5 }),
 
     placeGlb(root, "baguette-loaf", poi.baguette.x + 0.3, poi.baguette.z + 0.1, {
-      scale: 1.6, yOff: 0.95, fun: "fling",
+      scale: 1.6, yOff: 0.95, fun: "fling", punId: "baguette",
     }),
     placeGlb(root, "cafe-table", poi.baguette.x, poi.baguette.z, { scale: 2.0 }),
     placeGlb(root, "cafe-chair", poi.baguette.x, poi.baguette.z - 1.5, {
@@ -189,21 +206,23 @@ export async function scatterPunProps(
     placeGlb(root, "croissant", poi.baguette.x - 0.4, poi.baguette.z + 0.2, {
       scale: 1.2, yOff: 0.95,
     }),
+    placeGlb(root, "donut", poi.baguette.x + 1.6, poi.baguette.z + 1.4, { scale: 1.2 }),
 
     placeGlb(root, "airplane", poi.check.x - 9, poi.check.z - 5, {
-      scale: 5.5, rotY: 0.35, fun: "takeoff",
+      scale: 5.5, rotY: 0.35, fun: "takeoff", punId: "check",
     }),
     placeGlb(root, "conveyor", poi.check.x, poi.check.z + 2.8, { scale: 3.6 }),
     placeGlb(root, "laptopbag", poi.check.x + 1.8, poi.check.z + 1.2, { scale: 1.8 }),
     placeGlb(root, "briefcase", poi.check.x - 1.6, poi.check.z + 1.5, { scale: 1.6 }),
+    placeGlb(root, "vending", poi.check.x + 4.2, poi.check.z - 1.5, { scale: 2.6, rotY: -0.4 }),
 
     placeGlb(root, "microphone", poi.windbag.x, poi.windbag.z - 1.0, {
-      scale: 3.2, fun: "hop",
+      scale: 3.2, fun: "hop", punId: "windbag",
     }),
     placeGlb(root, "briefcase", poi.windbag.x + 1.5, poi.windbag.z + 0.5, { scale: 1.5 }),
 
     placeGlb(root, "pipe", poi.pipes.x - 1.4, poi.pipes.z + 0.2, {
-      scale: 3.8, rotX: -Math.PI / 2, rotY: 0.15, fun: "spinout",
+      scale: 3.8, rotX: -Math.PI / 2, rotY: 0.15, fun: "spinout", punId: "pipes",
     }),
     placeGlb(root, "pipe", poi.pipes.x + 1.4, poi.pipes.z - 0.15, {
       scale: 3.4, rotX: -Math.PI / 2, rotY: -0.25,
@@ -211,49 +230,56 @@ export async function scatterPunProps(
     placeGlb(root, "barrel", poi.pipes.x + 3.0, poi.pipes.z + 1.8, { scale: 2.2 }),
 
     placeGlb(root, "tent", poi.sleeping.x - 3.5, poi.sleeping.z - 0.8, {
-      scale: 3.2, fun: "hop",
+      scale: 3.2, fun: "hop", punId: "sleeping",
     }),
     placeGlb(root, "campfire", poi.sleeping.x + 2.6, poi.sleeping.z + 2.0, { scale: 2.0 }),
     placeGlb(root, "rug", poi.sleeping.x, poi.sleeping.z + 0.5, { scale: 4.5 }),
 
     placeGlb(root, "tea", poi.tea.x - 1.8, poi.tea.z + 1.0, {
-      scale: 2.8, fun: "spinout",
+      scale: 2.8, fun: "spinout", punId: "tea",
     }),
     placeGlb(root, "tea", poi.tea.x + 2.0, poi.tea.z - 0.6, { scale: 2.4 }),
     placeGlb(root, "plant", poi.tea.x + 3.5, poi.tea.z + 1.8, { scale: 2.0 }),
     placeGlb(root, "chair", poi.tea.x - 3.2, poi.tea.z - 1.5, { scale: 1.6 }),
 
     placeGlb(root, "poodle", poi.doggy.x + 1.8, poi.doggy.z + 0.5, {
-      scale: 1.8, fun: "zoom",
+      scale: 1.8, fun: "zoom", punId: "doggy",
     }),
     placeGlb(root, "fishbones", poi.doggy.x + 2.8, poi.doggy.z - 1.0, { scale: 1.8 }),
     placeGlb(root, "trashcan", poi.doggy.x - 3.0, poi.doggy.z + 1.5, { scale: 2.0 }),
+    placeGlb(root, "burger", poi.doggy.x - 1.2, poi.doggy.z - 1.6, { scale: 1.25 }),
+    placeGlb(root, "hotdog", poi.doggy.x + 0.5, poi.doggy.z - 1.8, { scale: 1.25 }),
+    placeGlb(root, "fries", poi.doggy.x - 0.3, poi.doggy.z - 2.3, { scale: 1.2 }),
 
     placeGlb(root, "rubik", poi.tricks.x + 2.0, poi.tricks.z + 1.2, {
-      scale: 3.2, fun: "scramble",
+      scale: 3.2, fun: "scramble", punId: "tricks",
     }),
     placeGlb(root, "trophy", poi.tricks.x - 2.2, poi.tricks.z + 1.5, { scale: 2.2 }),
     placeGlb(root, "lightcube", poi.tricks.x - 1.5, poi.tricks.z - 2.0, { scale: 1.2 }),
 
     placeGlb(root, "banana", poi.grocery.x - 3.3, poi.grocery.z - 2.5, {
-      scale: 8, fun: "fling",
+      scale: 8, fun: "fling", punId: "grocery",
     }),
     placeGlb(root, "apple", poi.grocery.x - 4, poi.grocery.z - 2.8, { scale: 1.4 }),
     placeGlb(root, "soda", poi.grocery.x + 0.4, poi.grocery.z - 2.8, { scale: 1.3 }),
+    placeGlb(root, "can", poi.grocery.x + 1.6, poi.grocery.z - 2.6, { scale: 1.15 }),
+    placeGlb(root, "donut", poi.grocery.x - 1.4, poi.grocery.z - 2.7, { scale: 1.2 }),
+    placeGlb(root, "icecream", poi.grocery.x + 2.8, poi.grocery.z - 2.5, { scale: 1.35 }),
+    placeGlb(root, "vending", poi.grocery.x - 6.2, poi.grocery.z - 4.2, { scale: 2.5 }),
     placeGlb(root, "cardboard", poi.grocery.x - 7, poi.grocery.z + 2, { scale: 2.2 }),
 
     placeGlb(root, "cardboard", poi.mixed.x, poi.mixed.z, {
-      scale: 2.4, fun: "spinout",
+      scale: 2.4, fun: "spinout", punId: "mixed",
     }),
     placeGlb(root, "barrel", poi.mixed.x + 2.5, poi.mixed.z + 1.5, { scale: 1.8 }),
 
     placeGlb(root, "airplane", poi.future.x + 4.5, poi.future.z - 2.8, {
-      scale: 5.0, rotY: 0.5, fun: "takeoff",
+      scale: 5.0, rotY: 0.5, fun: "takeoff", punId: "future",
     }),
     placeGlb(root, "cooler", poi.future.x - 2.5, poi.future.z + 1.5, { scale: 2.2 }),
 
     placeGlb(root, "cash", poi.money.x + 3.5, poi.money.z + 2.0, {
-      scale: 3.2, fun: "jackpot",
+      scale: 3.2, fun: "jackpot", punId: "money",
     }),
     placeGlb(root, "cash", poi.money.x - 1.5, poi.money.z + 2.5, { scale: 2.6 }),
     placeGlb(root, "briefcase", poi.money.x - 2.8, poi.money.z - 1.5, { scale: 2.4 }),
@@ -261,7 +287,7 @@ export async function scatterPunProps(
     placeGlb(root, "cardboard", poi.money.x - 4.5, poi.money.z - 2.5, { scale: 2.6 }),
 
     placeGlb(root, "extinguisher", poi.airbag.x + 3.5, poi.airbag.z - 2.5, {
-      scale: 2.4, fun: "blast",
+      scale: 2.4, fun: "blast", punId: "airbag",
     }),
     placeGlb(root, "airplane", poi.airbag.x - 7, poi.airbag.z + 2.5, { scale: 3.6, rotY: -0.55 }),
     placeGlb(root, "briefcase", poi.airbag.x + 2.5, poi.airbag.z + 2.0, { scale: 1.5 }),

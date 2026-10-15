@@ -20,17 +20,18 @@ import { TOY } from "../worlds/nature";
 import { SpaceRocket } from "../worlds/spaceRocket";
 import { Starfield } from "../worlds/starfield";
 import { scatterPunProps } from "../worlds/props";
-import { PUN_POI } from "../worlds/punScenes";
+import { PUN_META, PUN_POI, type PunId } from "../worlds/punScenes";
 import { ZonePopups } from "../worlds/zonePopups";
 import { BagBubbles } from "../worlds/bagBubbles";
 import { FunShows } from "../worlds/funShows";
-import { wrapDist } from "../worlds/wrap";
+import { wrapDelta, wrapDist } from "../worlds/wrap";
 import { Bag } from "./Bag";
 import { BagTrail } from "./BagTrail";
 import { CameraController } from "./CameraController";
 import { Input } from "./Input";
 import { TouchControls } from "./TouchControls";
 import { ToyPhysics } from "./ToyPhysics";
+import { WindSystem } from "./Wind";
 
 export class Game {
   private renderer: THREE.WebGLRenderer;
@@ -72,6 +73,20 @@ export class Game {
   private canvas: HTMLCanvasElement;
   private isMobile =
     window.matchMedia("(pointer: coarse)").matches || window.innerWidth < 900;
+  private windSystem!: WindSystem;
+  private previewing = false;
+  private discoveredZones = new Set<PunId>(["squiat"]);
+  private triggeredGags = new Set<PunId>();
+  private passportModal: HTMLElement | null = null;
+  private passportGrid: HTMLElement | null = null;
+  private passportZonesEl: HTMLElement | null = null;
+  private passportGagsEl: HTMLElement | null = null;
+  private compassArrowEl: HTMLElement | null = null;
+  private compassLabelEl: HTMLElement | null = null;
+  private altitudePillEl: HTMLElement | null = null;
+  private postcardFrameEl: HTMLElement | null = null;
+  private postcardTitleEl: HTMLElement | null = null;
+  private postcardBlurbEl: HTMLElement | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -145,8 +160,26 @@ export class Game {
       onCamera: () => this.cam.toggleCinematic(),
     });
 
+    this.bag.onCrinkle = (intensity) => {
+      if (this.running) this.stems.playCrinkle(intensity);
+    };
+
+    this.physics.onBump = (strength, worldPos, isBag) => {
+      if (!this.running) return;
+      this.stems.playBump(strength);
+      if (isBag || strength > 0.35) {
+        this.bagBubbles?.exciteNear(worldPos, 7.5, "bump");
+      }
+    };
+
+    this.setupPassportAndPostcardUi();
+
     this.canvas.addEventListener("pointerdown", this.onCanvasPointer);
     window.addEventListener("resize", this.onResize);
+
+    // Start live 3D preview and background audio preload immediately on splash!
+    this.stems.preload();
+    this.startPreview();
   }
 
   setCallbacks(_cb: { onWorldName?: (name: string) => void }): void {
@@ -166,13 +199,26 @@ export class Game {
     void this.stems.resume();
   }
 
+  private startPreview(): void {
+    if (this.running || this.previewing) return;
+    this.previewing = true;
+    this.cam.cinematic = true;
+    this.clock.reset();
+    this.loop();
+  }
+
   async start(): Promise<void> {
     await this.stems.start();
+    const wasLooping = this.running || this.previewing;
+    this.previewing = false;
     this.running = true;
+    this.cam.cinematic = false;
     this.armAudioResumeGestures();
     this.touch.show();
     this.clock.reset();
-    this.loop();
+    if (!wasLooping) {
+      this.loop();
+    }
   }
 
   private armAudioResumeGestures(): void {
@@ -209,7 +255,7 @@ export class Game {
   private onCanvasPointer = (e: PointerEvent): void => {
     if (!this.running || !this.isMobile || !this.propsReady) return;
     const target = e.target as HTMLElement | null;
-    if (target?.closest?.("#touch-ui")) return;
+    if (target?.closest?.("#touch-ui") || target?.closest?.("#hud")) return;
 
     const rect = this.canvas.getBoundingClientRect();
     this.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -224,13 +270,29 @@ export class Game {
       root.getWorldPosition(wp);
       const d = wrapDist(wp.x, wp.z, this.bag.position.x, this.bag.position.z);
       if (d > range) continue;
-      if (this.funShows.trigger(root)) this.cam.bump(0.28);
+      this.triggerGagOnMesh(root);
       return;
     }
   };
 
+  private triggerGagOnMesh(mesh: THREE.Object3D): boolean {
+    if (!this.funShows.trigger(mesh)) return false;
+    this.cam.bump(0.28);
+    this.stems.playGag("gag");
+    const wp = new THREE.Vector3();
+    mesh.getWorldPosition(wp);
+    this.bagBubbles?.exciteNear(wp, 12, "gag");
+    const punId = mesh.userData.punId as PunId | undefined;
+    if (punId && !this.triggeredGags.has(punId)) {
+      this.triggeredGags.add(punId);
+      this.refreshPassportHud();
+    }
+    return true;
+  }
+
   private loadAdventure(): void {
     this.adventure = buildAdventureWorld(this.isMobile);
+    this.windSystem = new WindSystem(this.adventure.wind);
     this.scene.add(this.adventure.group);
 
     this.zonePopups = new ZonePopups(this.adventure.zones);
@@ -274,7 +336,7 @@ export class Game {
   }
 
   private loop = (): void => {
-    if (!this.running) return;
+    if (!this.running && !this.previewing) return;
     requestAnimationFrame(this.loop);
 
     this.clock.update();
@@ -282,12 +344,19 @@ export class Game {
     const time = this.clock.getElapsed();
 
     this.input.beginFrame();
-    if (this.input.justPressed("KeyC")) this.cam.toggleCinematic();
-    if (this.input.justPressed("KeyM")) this.toggleMute();
+    if (this.running) {
+      if (this.input.justPressed("KeyC")) this.cam.toggleCinematic();
+      if (this.input.justPressed("KeyM")) this.toggleMute();
+      if (this.input.consumePassport()) this.togglePassportModal();
+      if (this.input.consumePostcard()) this.togglePostcardMode();
+    }
 
     const fogFar = (this.scene.fog as THREE.Fog | null)?.far ?? 175;
     const fw = fireworkAmount(this.bag.altitudeY);
     const sp = spaceAmount(this.bag.altitudeY);
+
+    this.windSystem.update(dt);
+    const windSample = this.windSystem.sample(this.bag.position);
 
     this.adventure.update(dt, time, this.bag.position, fogFar, sp);
     const updateProps = this.adventure.group.userData.updateProps as
@@ -299,24 +368,52 @@ export class Game {
     this.bag.setGroundY(this.adventure.heightAt(this.bag.position.x, this.bag.position.z));
 
     this.camera.getWorldDirection(this.camDir);
-    this.bag.update(dt, this.input, this.camDir);
+    if (this.running) {
+      if (this.input.consumeDash()) {
+        if (this.bag.triggerDash(this.camDir, this.input)) {
+          this.stems.playWhoosh(1.25);
+          this.cam.bump(0.2);
+          this.physics.dashShockwave(this.bag.position, this.camDir);
+          this.bagBubbles?.exciteNear(this.bag.position, 9.5, "dash");
+        }
+      }
+      if (this.input.consumeGrab()) {
+        const res = this.physics.toggleCarry(this.bag.position, this.bag.velocity);
+        if (res.action === "pickup") {
+          this.stems.playGag("pickup");
+        } else if (res.action === "drop") {
+          this.stems.playGag("drop");
+          this.cam.bump(0.14);
+        }
+      }
+      this.bag.update(dt, this.input, this.camDir, windSample);
+    } else {
+      // Gentle hover while on splash preview
+      this.bag.position.y =
+        this.adventure.spawn.y + Math.sin(time * 1.3) * 0.65;
+      this.bag.group.rotation.y = Math.sin(time * 0.45) * 0.35;
+    }
+
     this.bagTrail.update(dt, this.bag.position, this.bag.windSpeed);
     this.physics.syncPlayer(this.bag.position, this.bag.velocity);
     this.physics.update(dt, this.bag.position);
 
-    if (this.propsReady && this.input.consumeInteract()) {
+    if (this.running && this.propsReady && this.input.consumeInteract()) {
       const near = this.physics.nearestInteractable(this.bag.position);
-      if (near && this.funShows.trigger(near.mesh)) {
-        this.cam.bump(0.28);
+      if (near) {
+        this.triggerGagOnMesh(near.mesh);
       }
     }
-    this.cam.applySpin(this.input.spin, dt);
+    if (this.running) {
+      this.cam.applySpin(this.input.spin, dt);
+    }
 
-    const canInteract =
-      this.propsReady && !!this.physics.nearestInteractable(this.bag.position);
-    this.touch.setCanInteract(canInteract, this.isMobile);
+    const canGag =
+      this.running && this.propsReady && !!this.physics.nearestInteractable(this.bag.position);
+    const canGrab = this.running && this.propsReady && this.physics.canCarryNear(this.bag.position);
+    this.touch.setCanInteract(canGag, canGrab, this.physics.isCarrying, this.isMobile);
 
-    this.funShows.update(dt);
+    this.funShows.update(dt, this.camera);
 
     const showSkyStuff = sp < 0.4;
     this.clouds.group.visible = showSkyStuff;
@@ -356,13 +453,17 @@ export class Game {
       this.currentZoneId = zone.id;
     }
 
+    this.updateDiscoveryAndCompass(zone);
+
     this.zonePopups?.update(dt, this.bag.position, this.camera, time, { fw, sp });
     this.bagBubbles?.update(dt, this.bag.position, this.camera);
 
-    this.stems.update({
-      altitudeY: this.bag.altitudeY,
-      worldId: this.currentZoneId,
-    });
+    if (this.running) {
+      this.stems.update({
+        altitudeY: this.bag.altitudeY,
+        worldId: this.currentZoneId,
+      });
+    }
 
     this.skyMesh.position.copy(this.camera.position);
     if (this.composer) this.composer.render();
@@ -535,4 +636,150 @@ export class Game {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.composer?.setSize(window.innerWidth, window.innerHeight);
   };
+
+  private setupPassportAndPostcardUi(): void {
+    this.passportModal = document.querySelector("#passport-modal");
+    this.passportGrid = document.querySelector("#passport-grid");
+    this.passportZonesEl = document.querySelector("#passport-zones");
+    this.passportGagsEl = document.querySelector("#passport-gags");
+    this.compassArrowEl = document.querySelector("#compass-arrow");
+    this.compassLabelEl = document.querySelector("#compass-label");
+    this.altitudePillEl = document.querySelector("#altitude-pill");
+    this.postcardFrameEl = document.querySelector("#postcard-frame");
+    this.postcardTitleEl = document.querySelector("#postcard-title");
+    this.postcardBlurbEl = document.querySelector("#postcard-blurb");
+
+    document.querySelector("#passport-btn")?.addEventListener("click", () => {
+      this.togglePassportModal();
+    });
+    document.querySelector("#passport-close")?.addEventListener("click", () => {
+      this.togglePassportModal(false);
+    });
+    this.passportModal?.addEventListener("click", (e) => {
+      if (e.target === this.passportModal) this.togglePassportModal(false);
+    });
+    document.querySelector("#postcard-btn")?.addEventListener("click", () => {
+      this.togglePostcardMode();
+    });
+
+    this.refreshPassportHud();
+  }
+
+  private togglePassportModal(force?: boolean): void {
+    if (!this.passportModal) return;
+    const next = force ?? this.passportModal.hidden;
+    this.passportModal.hidden = !next;
+    if (next) {
+      this.renderPassportStamps();
+    }
+  }
+
+  private togglePostcardMode(force?: boolean): void {
+    if (!this.postcardFrameEl) return;
+    const next = force ?? this.postcardFrameEl.hidden;
+    this.postcardFrameEl.hidden = !next;
+  }
+
+  private refreshPassportHud(): void {
+    const total = Object.keys(PUN_POI).length;
+    if (this.passportZonesEl) {
+      this.passportZonesEl.textContent = `${this.discoveredZones.size} / ${total} zones`;
+    }
+    if (this.passportGagsEl) {
+      this.passportGagsEl.textContent = `${this.triggeredGags.size} / ${total} gags`;
+    }
+    if (this.passportModal && !this.passportModal.hidden) {
+      this.renderPassportStamps();
+    }
+  }
+
+  private renderPassportStamps(): void {
+    if (!this.passportGrid) return;
+    this.passportGrid.innerHTML = "";
+    for (const id of Object.keys(PUN_POI) as PunId[]) {
+      const meta = PUN_META[id];
+      const discovered = this.discoveredZones.has(id);
+      const gagDone = this.triggeredGags.has(id);
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = `passport-stamp${discovered ? " is-discovered" : ""}`;
+      btn.innerHTML = `
+        <div class="passport-stamp__top">
+          <span class="passport-stamp__title">${discovered ? meta.title : "???"}</span>
+          ${gagDone ? `<span class="passport-stamp__gag">★ gag</span>` : ""}
+        </div>
+        <span class="passport-stamp__blurb">${discovered ? meta.blurb : "drift closer to stamp"}</span>
+      `;
+      if (discovered) {
+        btn.addEventListener("click", () => {
+          this.teleportToHub(id);
+          this.togglePassportModal(false);
+        });
+      }
+      this.passportGrid.appendChild(btn);
+    }
+  }
+
+  private teleportToHub(id: PunId): void {
+    const poi = PUN_POI[id];
+    const ground = this.adventure.heightAt(poi.x, poi.z);
+    this.bag.position.set(poi.x, ground + 6.5, poi.z + 7.5);
+    this.bag.velocity.set(0, 1.5, -2.5);
+    this.stems.playWhoosh(1.1);
+    this.cam.bump(0.2);
+  }
+
+  private updateDiscoveryAndCompass(currentZone: ZoneAtmosphere): void {
+    const entries = Object.entries(PUN_POI) as [PunId, { x: number; z: number }][];
+    let nearestUndiscovered: { id: PunId; d: number; dx: number; dz: number } | null = null;
+
+    for (const [id, poi] of entries) {
+      const d = wrapDist(this.bag.position.x, this.bag.position.z, poi.x, poi.z);
+      const meta = PUN_META[id];
+      if (d < meta.radius * 0.72 && !this.discoveredZones.has(id)) {
+        this.discoveredZones.add(id);
+        this.stems.playGag("discover");
+        this.refreshPassportHud();
+      }
+      if (!this.discoveredZones.has(id)) {
+        if (!nearestUndiscovered || d < nearestUndiscovered.d) {
+          const dx = wrapDelta(poi.x, this.bag.position.x);
+          const dz = wrapDelta(poi.z, this.bag.position.z);
+          nearestUndiscovered = { id, d, dx, dz };
+        }
+      }
+    }
+
+    if (this.compassArrowEl && this.compassLabelEl) {
+      if (nearestUndiscovered) {
+        const meta = PUN_META[nearestUndiscovered.id];
+        const worldAngle = Math.atan2(nearestUndiscovered.dx, -nearestUndiscovered.dz);
+        const camYaw = Math.atan2(this.camDir.x, -this.camDir.z);
+        const relDeg = ((worldAngle - camYaw) * 180) / Math.PI;
+        this.compassArrowEl.style.transform = `rotate(${relDeg.toFixed(1)}deg)`;
+        this.compassLabelEl.textContent = `${meta.title} (${Math.round(nearestUndiscovered.d)}m)`;
+      } else {
+        this.compassArrowEl.style.transform = "rotate(0deg)";
+        this.compassLabelEl.textContent = "All 17 zones stamped!";
+      }
+    }
+
+    if (this.altitudePillEl) {
+      const y = this.bag.altitudeY;
+      if (y >= 95) {
+        this.altitudePillEl.textContent = `Deep Space · ${Math.round(y)}m`;
+      } else if (y >= 65) {
+        this.altitudePillEl.textContent = `Firework Sky · ${Math.round(y)}m`;
+      } else if (y >= 32) {
+        this.altitudePillEl.textContent = `Cloud Layer · ${Math.round(y)}m`;
+      } else {
+        this.altitudePillEl.textContent = `Meadow · ${currentZone.name}`;
+      }
+    }
+
+    if (this.postcardTitleEl && this.postcardBlurbEl && !this.postcardFrameEl?.hidden) {
+      this.postcardTitleEl.textContent = `Greetings from ${currentZone.name}`;
+      this.postcardBlurbEl.textContent = currentZone.blurb ?? "drifting through the wind";
+    }
+  }
 }

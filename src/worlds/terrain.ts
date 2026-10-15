@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { WORLD_SIZE } from "./wrap";
+import { WORLD_SIZE, wrapDist2 } from "./wrap";
 import { TOY } from "./nature";
 
 /**
@@ -18,7 +18,19 @@ export function terrainHeight(x: number, z: number): number {
   return 0.6 + h;
 }
 
-type PathSeg = { ax: number; az: number; bx: number; bz: number; len: number };
+type PathSeg = {
+  ax: number;
+  az: number;
+  bx: number;
+  bz: number;
+  len: number;
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+};
+
+export type HubTint = { x: number; z: number; color: number; radius?: number };
 
 /** Squared distance from point to segment AB on XZ. */
 function distToSeg2(px: number, pz: number, s: PathSeg): number {
@@ -32,33 +44,18 @@ function distToSeg2(px: number, pz: number, s: PathSeg): number {
   return qx * qx + qz * qz;
 }
 
-/** Wrap-aware min distance² to a path segment (and ±WORLD_SIZE copies). */
-function distToSeg2Wrap(px: number, pz: number, s: PathSeg): number {
-  let best = Infinity;
-  for (let ox = -WORLD_SIZE; ox <= WORLD_SIZE; ox += WORLD_SIZE) {
-    for (let oz = -WORLD_SIZE; oz <= WORLD_SIZE; oz += WORLD_SIZE) {
-      const d2 = distToSeg2(px, pz, {
-        ax: s.ax + ox,
-        az: s.az + oz,
-        bx: s.bx + ox,
-        bz: s.bz + oz,
-        len: s.len,
-      });
-      if (d2 < best) best = d2;
-    }
-  }
-  return best;
-}
-
 /**
- * Terrain mesh with path ribbons painted into the grass (vertex colors).
+ * Precomputed lookup grid over one canonical WORLD_SIZE tile [-WORLD_HALF, WORLD_HALF].
+ * Eliminates ~1.1M segment distance evaluations per frame down to a fast bilinear lookup,
+ * and only updates vertex buffers when the player moves across a step threshold.
  */
 export function buildTerrainMesh(
   size: number,
   segments: number,
   color = 0x3ecf6a,
   pathPairs: [{ x: number; z: number }, { x: number; z: number }][] = [],
-): { mesh: THREE.Mesh; refresh: (cx: number, cz: number) => void } {
+  hubTints: HubTint[] = [],
+): { mesh: THREE.Mesh; refresh: (cx: number, cz: number, force?: boolean) => void } {
   const geo = new THREE.PlaneGeometry(size, size, segments, segments);
   geo.rotateX(-Math.PI / 2);
 
@@ -87,50 +84,130 @@ export function buildTerrainMesh(
   const grassDeep = new THREE.Color(TOY.grassDeep);
   const pathCol = new THREE.Color(TOY.path);
   const pathEdge = new THREE.Color(0xd49850);
+  const stoneCol = new THREE.Color(0xf6dfba);
   const tmp = new THREE.Color();
+  const hubCol = new THREE.Color();
 
-  const segs: PathSeg[] = pathPairs.map(([a, b]) => {
+  // Build wrapped segment copies once at startup
+  const segs: PathSeg[] = [];
+  for (const [a, b] of pathPairs) {
     const len = Math.hypot(b.x - a.x, b.z - a.z) || 1;
-    return { ax: a.x, az: a.z, bx: b.x, bz: b.z, len };
-  });
+    for (let ox = -WORLD_SIZE; ox <= WORLD_SIZE; ox += WORLD_SIZE) {
+      for (let oz = -WORLD_SIZE; oz <= WORLD_SIZE; oz += WORLD_SIZE) {
+        const ax = a.x + ox;
+        const az = a.z + oz;
+        const bx = b.x + ox;
+        const bz = b.z + oz;
+        segs.push({
+          ax,
+          az,
+          bx,
+          bz,
+          len,
+          minX: Math.min(ax, bx) - 5,
+          maxX: Math.max(ax, bx) + 5,
+          minZ: Math.min(az, bz) - 5,
+          maxZ: Math.max(az, bz) + 5,
+        });
+      }
+    }
+  }
 
-  // Wide enough to read on coarse mobile terrain verts
   const PATH_HALF = 2.6;
   const PATH_FADE = 1.4;
+  const MAX_PATH_D = PATH_HALF + PATH_FADE;
+  const MAX_PATH_D2 = MAX_PATH_D * MAX_PATH_D;
 
-  const refresh = (cx: number, cz: number): void => {
-    mesh.position.x = cx;
-    mesh.position.z = cz;
-    const colorAttr = geo.attributes.color as THREE.BufferAttribute;
+  // Bake a seamless tile LUT (256x256 RGB + height) once at boot
+  const LUT_N = 256;
+  const lutR = new Float32Array(LUT_N * LUT_N);
+  const lutG = new Float32Array(LUT_N * LUT_N);
+  const lutB = new Float32Array(LUT_N * LUT_N);
 
-    for (let i = 0; i < pos.count; i++) {
-      const wx = cx + baseX[i]!;
-      const wz = cz + baseZ[i]!;
-      pos.setY(i, terrainHeight(wx, wz));
-
+  for (let iz = 0; iz < LUT_N; iz++) {
+    const wz = ((iz / LUT_N) - 0.5) * WORLD_SIZE;
+    for (let ix = 0; ix < LUT_N; ix++) {
+      const wx = ((ix / LUT_N) - 0.5) * WORLD_SIZE;
       const n = Math.sin(wx * 0.08) * Math.cos(wz * 0.07);
-      tmp.copy(grass).lerp(grassDeep, 0.2 + n * 0.15);
+      const meadowPatch = Math.sin(wx * 0.035 + wz * 0.025) * 0.5 + 0.5;
+      tmp.copy(grass).lerp(grassDeep, 0.16 + n * 0.14 + meadowPatch * 0.1);
 
-      let best = Infinity;
-      for (const s of segs) {
-        const d2 = distToSeg2Wrap(wx, wz, s);
+      // Subtle theme-park ground tint around each pun hub
+      for (let h = 0; h < hubTints.length; h++) {
+        const ht = hubTints[h]!;
+        const r = ht.radius ?? 20;
+        const d2 = wrapDist2(wx, wz, ht.x, ht.z);
+        if (d2 < r * r) {
+          const w = 1 - Math.sqrt(d2) / r;
+          hubCol.setHex(ht.color);
+          tmp.lerp(hubCol, w * w * 0.32);
+        }
+      }
+
+      let best = MAX_PATH_D2 + 1;
+      for (let sIdx = 0; sIdx < segs.length; sIdx++) {
+        const s = segs[sIdx]!;
+        if (wx < s.minX || wx > s.maxX || wz < s.minZ || wz > s.maxZ) continue;
+        const d2 = distToSeg2(wx, wz, s);
         if (d2 < best) best = d2;
       }
-      const d = Math.sqrt(best);
-      if (d < PATH_HALF + PATH_FADE) {
+
+      if (best <= MAX_PATH_D2) {
+        const d = Math.sqrt(best);
         const core = 1 - Math.min(1, d / PATH_HALF);
         const soft = 1 - Math.min(1, Math.max(0, d - PATH_HALF) / PATH_FADE);
         const amt = Math.max(core * 0.98, soft * 0.65);
-        tmp.lerp(d < PATH_HALF * 0.7 ? pathCol : pathEdge, amt);
+        tmp.lerp(d < PATH_HALF * 0.72 ? pathCol : pathEdge, amt);
+        // Subtle cobblestone speckle in the center of paths
+        if (d < PATH_HALF * 0.48) {
+          const cobble = Math.sin(wx * 1.4) * Math.cos(wz * 1.4);
+          if (cobble > 0.55) tmp.lerp(stoneCol, (cobble - 0.55) * 0.55);
+        }
       }
 
-      colorAttr.setXYZ(i, tmp.r, tmp.g, tmp.b);
+      const idx = iz * LUT_N + ix;
+      lutR[idx] = tmp.r;
+      lutG[idx] = tmp.g;
+      lutB[idx] = tmp.b;
+    }
+  }
+
+  let lastCx = Number.NaN;
+  let lastCz = Number.NaN;
+  const cellStep = size / segments;
+
+  const refresh = (cx: number, cz: number, force = false): void => {
+    // Snap terrain grid to vertex step so vertices don't swim/shimmer as you move
+    const snapX = Math.round(cx / cellStep) * cellStep;
+    const snapZ = Math.round(cz / cellStep) * cellStep;
+    if (!force && Math.abs(snapX - lastCx) < cellStep * 0.5 && Math.abs(snapZ - lastCz) < cellStep * 0.5) {
+      return;
+    }
+    lastCx = snapX;
+    lastCz = snapZ;
+
+    mesh.position.x = snapX;
+    mesh.position.z = snapZ;
+    const colorAttr = geo.attributes.color as THREE.BufferAttribute;
+
+    for (let i = 0; i < pos.count; i++) {
+      const wx = snapX + baseX[i]!;
+      const wz = snapZ + baseZ[i]!;
+      pos.setY(i, terrainHeight(wx, wz));
+
+      const u = ((((wx / WORLD_SIZE) + 0.5) % 1) + 1) % 1;
+      const v = ((((wz / WORLD_SIZE) + 0.5) % 1) + 1) % 1;
+      const ix = Math.min(LUT_N - 1, (u * LUT_N) | 0);
+      const iz = Math.min(LUT_N - 1, (v * LUT_N) | 0);
+      const idx = iz * LUT_N + ix;
+
+      colorAttr.setXYZ(i, lutR[idx]!, lutG[idx]!, lutB[idx]!);
     }
     pos.needsUpdate = true;
     colorAttr.needsUpdate = true;
     geo.computeVertexNormals();
   };
 
-  refresh(0, 0);
+  refresh(0, 0, true);
   return { mesh, refresh };
 }

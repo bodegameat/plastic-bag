@@ -2,14 +2,16 @@ import * as THREE from "three";
 import { ALT } from "../worlds/altitude";
 import { makeSmileTexture } from "../worlds/bagNpc";
 import type { Input } from "./Input";
+import type { WindSample } from "./Wind";
 
-const RISE_SPEED = 7.2;
-const DROP_SPEED = 11;
+const RISE_SPEED = 7.6;
+const DROP_SPEED = 11.5;
 const HOVER_DAMP = 2.8;
 const MAX_ALTITUDE = ALT.MAX;
 
 /**
- * Open-film shopping bag — front + back sheets (hollow), calm billow, U-tube handles.
+ * Open-film shopping bag — front + back sheets (hollow), calm billow, U-tube handles,
+ * iridescent rim shimmer, Puff-Dash boost, and WindSystem coupling.
  */
 export class Bag {
   readonly group = new THREE.Group();
@@ -17,10 +19,14 @@ export class Bag {
   fill = 0.55;
   snagged = false;
   windSpeed = 0;
+  dashTimer = 0;
+  dashCooldown = 0;
+  inUpdraft = false;
 
   private mesh!: THREE.Mesh;
   private backMesh!: THREE.Mesh;
   private handles!: THREE.Group;
+  private faceMesh!: THREE.Mesh;
   private basePositions!: Float32Array;
   private time = 0;
   private tumble = new THREE.Vector3();
@@ -32,6 +38,8 @@ export class Bag {
   private normalFrame = 0;
   private groundY = 0.5;
   private idlePhase = Math.random() * Math.PI * 2;
+  private prevStickX = 0;
+  onCrinkle?: (intensity: number) => void;
 
   constructor() {
     this.buildMesh();
@@ -44,12 +52,13 @@ export class Bag {
     if (q === "mobile") {
       mat.transmission = 0;
       mat.thickness = 0;
-      mat.clearcoat = 0.15;
-      mat.opacity = 0.82;
+      mat.clearcoat = 0.25;
+      mat.iridescence = 0.35;
+      mat.opacity = 0.84;
       mat.depthWrite = true;
       const back = this.backMesh.material as THREE.MeshPhysicalMaterial;
       back.transmission = 0;
-      back.opacity = 0.28;
+      back.opacity = 0.3;
     }
   }
 
@@ -75,17 +84,61 @@ export class Bag {
     this.velocity.z += iz;
   }
 
-  update(dt: number, input: Input, camForward: THREE.Vector3): void {
+  /** Trigger a Puff-Dash forward burst. Returns true if dash fired. */
+  triggerDash(camForward: THREE.Vector3, input: Input): boolean {
+    if (this.dashCooldown > 0) return false;
+    this.dashCooldown = 1.05;
+    this.dashTimer = 0.42;
+    this.fill = 1.0;
+
+    this._forward.set(camForward.x, 0, camForward.z);
+    if (this._forward.lengthSq() < 1e-6) this._forward.set(0, 0, -1);
+    else this._forward.normalize();
+    this._right.crossVectors(this._forward, new THREE.Vector3(0, 1, 0)).normalize();
+
+    const dir = this._nudge.set(0, 0, 0);
+    if (Math.hypot(input.stickX, input.stickY) > 0.1) {
+      dir.addScaledVector(this._right, input.stickX).addScaledVector(this._forward, input.stickY);
+      dir.normalize();
+    } else {
+      dir.copy(this._forward);
+    }
+
+    this.velocity.x += dir.x * 22;
+    this.velocity.z += dir.z * 22;
+    this.velocity.y = Math.max(this.velocity.y + 3.8, 4.2);
+    this.tumble.x += 0.65;
+    return true;
+  }
+
+  update(
+    dt: number,
+    input: Input,
+    camForward: THREE.Vector3,
+    wind?: WindSample,
+    onCrinkle: (intensity: number) => void = (i) => this.onCrinkle?.(i),
+  ): void {
     this.time += dt;
+    this.dashCooldown = Math.max(0, this.dashCooldown - dt);
+    this.dashTimer = Math.max(0, this.dashTimer - dt);
     input.beginFrame();
 
-    if (input.fill && !input.crumple) {
-      this.fill = Math.min(1, this.fill + 0.7 * dt);
+    if (this.dashTimer > 0) {
+      this.fill = 1;
+    } else if (input.fill && !input.crumple) {
+      if (this.fill < 0.7) onCrinkle?.(0.45);
+      this.fill = Math.min(1, this.fill + 0.8 * dt);
     } else if (input.crumple) {
-      this.fill = Math.max(0.12, this.fill - 1.1 * dt);
+      if (this.fill > 0.3) onCrinkle?.(0.65);
+      this.fill = Math.max(0.12, this.fill - 1.2 * dt);
     } else {
-      this.fill += (0.55 - this.fill) * 0.2 * dt;
+      this.fill += (0.55 - this.fill) * 0.25 * dt;
     }
+
+    if (Math.abs(input.stickX - this.prevStickX) > 0.65) {
+      onCrinkle?.(0.5);
+    }
+    this.prevStickX = input.stickX;
 
     this._forward.set(camForward.x, 0, camForward.z);
     if (this._forward.lengthSq() < 1e-6) this._forward.set(0, 0, -1);
@@ -94,21 +147,17 @@ export class Bag {
 
     const y = this.group.position.y;
     let gear = 1;
-    let drag = 6;
     if (y > ALT.SPACE_LO) {
-      gear = 0.75;
-      drag = 1.6;
+      gear = 0.78;
     } else if (y > 70) {
-      gear = 0.85;
-      drag = 3.2;
+      gear = 0.88;
     } else if (y > 40) {
-      gear = 0.92;
-      drag = 4.5;
+      gear = 0.94;
     }
 
-    const sail = 0.72 + this.fill * 0.55;
-    const turnSnap = 5.5 + (1 - this.fill) * 6;
-    const moveSpeed = 19 * gear * sail;
+    const sail = 0.75 + this.fill * 0.58;
+    const turnSnap = 6.0 + (1 - this.fill) * 6;
+    const moveSpeed = (this.dashTimer > 0 ? 29 : 20) * gear * sail;
 
     const nx = input.stickX;
     const ny = input.stickY;
@@ -119,8 +168,9 @@ export class Bag {
       target.addScaledVector(this._right, nx).addScaledVector(this._forward, ny);
       const len = target.length() || 1;
       target.multiplyScalar(moveSpeed / len);
-      this.velocity.x = THREE.MathUtils.damp(this.velocity.x, target.x, turnSnap, dt);
-      this.velocity.z = THREE.MathUtils.damp(this.velocity.z, target.z, turnSnap, dt);
+      const dampRate = this.dashTimer > 0 ? 2.5 : turnSnap;
+      this.velocity.x = THREE.MathUtils.damp(this.velocity.x, target.x, dampRate, dt);
+      this.velocity.z = THREE.MathUtils.damp(this.velocity.z, target.z, dampRate, dt);
       this._coast.copy(this.velocity);
     } else {
       const coastDrag = y > ALT.SPACE_LO ? 0.28 : y > 70 ? 0.7 : 1.35;
@@ -130,21 +180,36 @@ export class Bag {
         this.velocity.x += Math.sin(this.time * 1.3 + this.idlePhase) * 0.45 * dt;
         this.velocity.z += Math.cos(this.time * 1.1 + this.idlePhase) * 0.45 * dt;
       }
-      void drag;
+    }
+
+    // Apply ambient breeze + updrafts from WindSystem
+    this.inUpdraft = false;
+    if (wind) {
+      const windInfluence = (0.35 + this.fill * 0.65) * (steering ? 0.45 : 0.85);
+      this.velocity.x += wind.force.x * windInfluence * dt;
+      this.velocity.z += wind.force.z * windInfluence * dt;
+      if (wind.force.y > 2.2) {
+        this.inUpdraft = true;
+        this.velocity.y += wind.force.y * (0.65 + this.fill * 0.5) * dt;
+      }
     }
 
     let vyTarget = 0;
     if (input.fill && !input.crumple) {
-      vyTarget = RISE_SPEED * (0.85 + this.fill * 0.25);
+      vyTarget = RISE_SPEED * (0.85 + this.fill * 0.28);
     } else if (input.crumple) {
       vyTarget = -DROP_SPEED * (1.15 - this.fill * 0.35);
     } else if (y > 70) {
       vyTarget = -0.1;
-    } else {
+    } else if (!this.inUpdraft) {
       const hover = this.groundY + 7;
       vyTarget = THREE.MathUtils.clamp((hover - y) * 0.08, -1.2, 1.2);
     }
-    this.velocity.y = THREE.MathUtils.damp(this.velocity.y, vyTarget, HOVER_DAMP, dt);
+    if (!this.inUpdraft || input.crumple) {
+      this.velocity.y = THREE.MathUtils.damp(this.velocity.y, vyTarget, HOVER_DAMP, dt);
+    } else {
+      this.velocity.y = Math.min(18, this.velocity.y);
+    }
 
     if (y > MAX_ALTITUDE - 20 && this.velocity.y > 0) {
       this.velocity.y *= 0.9;
@@ -186,17 +251,23 @@ export class Bag {
     geo.computeVertexNormals();
 
     const mat = new THREE.MeshPhysicalMaterial({
-      color: 0xece8de,
+      color: 0xf4f0e6,
       transparent: true,
-      opacity: 0.78,
-      roughness: 0.24,
+      opacity: 0.8,
+      roughness: 0.22,
       metalness: 0,
-      transmission: 0.5,
-      thickness: 0.32,
+      transmission: 0.52,
+      thickness: 0.36,
       ior: 1.45,
-      clearcoat: 0.55,
-      clearcoatRoughness: 0.22,
-      envMapIntensity: 1.2,
+      clearcoat: 0.65,
+      clearcoatRoughness: 0.18,
+      iridescence: 0.55,
+      iridescenceIOR: 1.32,
+      sheen: 0.35,
+      sheenColor: new THREE.Color(0xfff0c8),
+      emissive: new THREE.Color(0x28241e),
+      emissiveIntensity: 0.22,
+      envMapIntensity: 1.25,
       side: THREE.DoubleSide,
       depthWrite: false,
     });
@@ -209,18 +280,20 @@ export class Bag {
     this.backMesh.position.z = -0.08;
     this.backMesh.scale.setScalar(0.97);
     const backMat = (this.backMesh.material as THREE.MeshPhysicalMaterial).clone();
-    backMat.opacity = 0.32;
+    backMat.opacity = 0.34;
     backMat.transmission = 0.28;
     this.backMesh.material = backMat;
     this.group.add(this.backMesh);
 
     this.handles = new THREE.Group();
     const handleMat = new THREE.MeshPhysicalMaterial({
-      color: 0xd8d4c8,
-      roughness: 0.35,
-      clearcoat: 0.4,
+      color: 0xdcd8cc,
+      roughness: 0.32,
+      clearcoat: 0.45,
       transparent: true,
-      opacity: 0.88,
+      opacity: 0.9,
+      emissive: new THREE.Color(0x201c16),
+      emissiveIntensity: 0.2,
     });
     for (const x of [-0.19, 0.19]) {
       const curve = new THREE.CatmullRomCurve3([
@@ -242,10 +315,11 @@ export class Bag {
         map: makeSmileTexture(),
         transparent: true,
         depthWrite: false,
-        opacity: 0.94,
+        opacity: 0.96,
       }),
     );
     face.position.set(0, 0.05, 0.1);
+    this.faceMesh = face;
     this.group.add(face);
   }
 
@@ -254,15 +328,17 @@ export class Bag {
     const crumpled = 1 - this.fill;
     const t = this.time;
     const speed = this.windSpeed;
+    const dashBoost = this.dashTimer > 0 ? 0.16 : 0;
 
-    // Calm scale — breeze, not melting
-    const sx = 0.88 + puffed * 0.28;
-    const sy = 0.82 + puffed * 0.28;
-    const sz = 0.7 + puffed * 0.4;
+    // Calm scale — breeze + puff dash pop
+    const sx = 0.88 + puffed * 0.28 + dashBoost;
+    const sy = 0.82 + puffed * 0.28 + dashBoost * 0.6;
+    const sz = 0.7 + puffed * 0.4 + dashBoost * 1.1;
     this.mesh.scale.set(sx, sy, sz);
     this.backMesh.scale.set(sx * 0.97, sy * 0.97, sz * 0.97);
     this.handles.scale.setScalar(0.95 + puffed * 0.06);
     this.handles.position.y = crumpled * -0.04;
+    this.faceMesh.scale.setScalar(1 + dashBoost * 0.8);
 
     const pos = this.mesh.geometry.attributes.position as THREE.BufferAttribute;
     for (let i = 0; i < pos.count; i++) {
@@ -315,7 +391,8 @@ export class Bag {
     this.tumble.multiplyScalar(1 - dt * 0.85);
 
     const mat = this.mesh.material as THREE.MeshPhysicalMaterial;
-    mat.opacity = 0.58 + puffed * 0.25;
+    mat.opacity = 0.6 + puffed * 0.25;
+    mat.emissiveIntensity = this.dashTimer > 0 ? 0.55 : this.inUpdraft ? 0.38 : 0.22;
     if (this.quality === "desktop") mat.transmission = 0.3 + puffed * 0.28;
   }
 }

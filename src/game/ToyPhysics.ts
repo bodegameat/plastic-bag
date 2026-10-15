@@ -32,12 +32,36 @@ export class ToyPhysics {
   });
   private _q = new THREE.Quaternion();
   private _euler = new THREE.Euler();
+  private carried: Tracked | null = null;
+  private lastBumpAt = 0;
+  onBump?: (strength: number, worldPos: THREE.Vector3, isBag: boolean) => void;
 
   constructor() {
     this.world.allowSleep = true;
     this.world.defaultContactMaterial.friction = 0.85;
-    this.world.defaultContactMaterial.restitution = 0.04;
+    this.world.defaultContactMaterial.restitution = 0.14;
     this.world.addBody(this.player);
+
+    this.player.addEventListener(
+      "collide",
+      (ev: { body?: CANNON.Body; contact?: { getImpactVelocityAlongNormal?: () => number } }) => {
+        const now = performance.now();
+        if (now - this.lastBumpAt < 110) return;
+        const other = ev.body;
+        if (!other) return;
+        const t = this.tracked.find((x) => x.body === other);
+        if (!t || t === this.carried) return;
+        const impact = Math.abs(ev.contact?.getImpactVelocityAlongNormal?.() ?? 2.5);
+        if (impact < 0.8) return;
+        this.lastBumpAt = now;
+        const strength = Math.min(1, impact / 9);
+        this.onBump?.(
+          strength,
+          new THREE.Vector3(t.body.position.x, t.body.position.y, t.body.position.z),
+          t.upright,
+        );
+      },
+    );
   }
 
   /** Register every bagNpc / prop marked with userData.toyPhysics. */
@@ -229,6 +253,98 @@ export class ToyPhysics {
     return null;
   }
 
+  /** Puff-Dash radial wind shockwave that scatters nearby props and NPC bags. */
+  dashShockwave(from: THREE.Vector3, forward: THREE.Vector3): number {
+    let hitCount = 0;
+    const radius = 6.8;
+    for (const t of this.tracked) {
+      if (t === this.carried || t.mesh.userData.funBusy || t.mesh.userData.physicsPin) continue;
+      const dx = wrapDelta(t.body.position.x, from.x);
+      const dz = wrapDelta(t.body.position.z, from.z);
+      const d = Math.hypot(dx, dz);
+      if (d > radius) continue;
+      t.body.wakeUp();
+      const falloff = 1 - d / radius;
+      const nx = d > 0.05 ? dx / d : forward.x;
+      const nz = d > 0.05 ? dz / d : forward.z;
+      const push = (5.5 + falloff * 7.5) * Math.min(2.2, t.body.mass);
+      t.body.applyImpulse(
+        new CANNON.Vec3(
+          (nx * 0.65 + forward.x * 0.35) * push,
+          (2.8 + falloff * 3.8) * Math.min(2.0, t.body.mass),
+          (nz * 0.65 + forward.z * 0.35) * push,
+        ),
+        t.body.position,
+      );
+      t.body.angularVelocity.set(
+        (Math.random() - 0.5) * 9,
+        (Math.random() - 0.5) * 9,
+        (Math.random() - 0.5) * 9,
+      );
+      hitCount++;
+    }
+    return hitCount;
+  }
+
+  /** Currently static-clung prop/bag under the player, if any. */
+  get isCarrying(): boolean {
+    return this.carried !== null;
+  }
+
+  /** Check if a carryable prop or NPC bag is in static-cling reach. */
+  canCarryNear(from: THREE.Vector3): boolean {
+    if (this.carried) return true;
+    return this.findCarryTarget(from) !== null;
+  }
+
+  private findCarryTarget(from: THREE.Vector3): Tracked | null {
+    let best: Tracked | null = null;
+    let bestD = Infinity;
+    for (const t of this.tracked) {
+      if (t.mesh.userData.funBusy || t.mesh.userData.physicsPin) continue;
+      if (t.radius > 2.4) continue; // skip giant airplanes / conveyors
+      const dx = wrapDelta(t.body.position.x, from.x);
+      const dz = wrapDelta(t.body.position.z, from.z);
+      const dy = Math.abs(t.body.position.y - from.y);
+      if (dy > 5.5) continue;
+      const d = Math.hypot(dx, dz);
+      if (d < 5.2 && d < bestD) {
+        bestD = d;
+        best = t;
+      }
+    }
+    return best;
+  }
+
+  /** Pick up nearest prop/bag with static cling, or launch currently carried item. */
+  toggleCarry(
+    playerPos: THREE.Vector3,
+    playerVel: THREE.Vector3,
+  ): { action: "pickup" | "drop" | "none"; mesh?: THREE.Object3D } {
+    if (this.carried) {
+      const released = this.carried;
+      this.carried = null;
+      released.body.wakeUp();
+      released.body.velocity.set(
+        playerVel.x * 1.45,
+        Math.max(2.6, playerVel.y * 1.15 + 3.2),
+        playerVel.z * 1.45,
+      );
+      released.body.angularVelocity.set(
+        (Math.random() - 0.5) * 6,
+        (Math.random() - 0.5) * 8,
+        (Math.random() - 0.5) * 6,
+      );
+      return { action: "drop", mesh: released.mesh };
+    }
+
+    const target = this.findCarryTarget(playerPos);
+    if (!target) return { action: "none" };
+    this.carried = target;
+    target.body.wakeUp();
+    return { action: "pickup", mesh: target.mesh };
+  }
+
   update(dt: number, playerPos: THREE.Vector3): void {
     const step = Math.min(0.05, dt);
 
@@ -251,7 +367,22 @@ export class ToyPhysics {
 
     this.world.step(1 / 60, step, 3);
 
+    if (this.carried) {
+      if (this.carried.mesh.userData.funBusy) {
+        this.carried = null;
+      } else {
+        const c = this.carried;
+        const targetY = playerPos.y - 0.72 - Math.min(0.65, c.halfH * 0.45);
+        c.body.position.set(playerPos.x, targetY, playerPos.z);
+        c.body.velocity.set(0, 0, 0);
+        c.body.angularVelocity.set(0, 1.5, 0);
+        c.mesh.position.set(c.body.position.x, c.body.position.y - c.yPivot, c.body.position.z);
+        c.mesh.rotation.y += step * 1.8;
+      }
+    }
+
     for (const t of this.tracked) {
+      if (t === this.carried) continue;
       if (t.mesh.userData.funBusy || t.mesh.userData.physicsPin) continue;
       if (t.body.sleepState === CANNON.Body.SLEEPING) continue;
 

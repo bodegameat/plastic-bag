@@ -85,6 +85,22 @@ export class TouchControls {
       },
       { passive: false },
     );
+    document.querySelector("#touch-dash")?.addEventListener(
+      "pointerdown",
+      (e) => {
+        e.preventDefault();
+        this.input.pulseDash();
+      },
+      { passive: false },
+    );
+    document.querySelector("#touch-grab")?.addEventListener(
+      "pointerdown",
+      (e) => {
+        e.preventDefault();
+        this.input.pulseGrab();
+      },
+      { passive: false },
+    );
 
     this.root.addEventListener(
       "touchmove",
@@ -96,11 +112,18 @@ export class TouchControls {
   }
 
   /** Show contextual interact prompt when something is in range. */
-  setCanInteract(can: boolean, mobile: boolean): void {
+  setCanInteract(canGag: boolean, canGrab: boolean, isCarrying: boolean, mobile: boolean): void {
     if (!this.interactHint) return;
-    this.interactHint.hidden = !can;
-    this.interactHint.textContent = mobile ? "tap it" : "enter";
-    this.interactHint.classList.toggle("is-on", can);
+    const show = canGag || canGrab || isCarrying;
+    this.interactHint.hidden = !show;
+    if (canGag) {
+      this.interactHint.textContent = mobile ? "tap it · gag" : "enter · trigger gag";
+    } else if (isCarrying) {
+      this.interactHint.textContent = mobile ? "cling · launch" : "G · launch prop";
+    } else if (canGrab) {
+      this.interactHint.textContent = mobile ? "cling · grab" : "G · static cling";
+    }
+    this.interactHint.classList.toggle("is-on", show);
   }
 
   setSnagged(snagged: boolean): void {
