@@ -3,12 +3,22 @@ import type { Updraft } from "../game/Wind";
 import { tagChunk } from "./landmarks";
 import { terrainHeight } from "./terrain";
 
-/** Soft drifting breeze motes + wind stream ribbons. */
+const GLITTER = [0xffffff, 0xffd6f0, 0xd6f4ff, 0xfff0b8, 0xe0ffe8, 0xffc8e8];
+const CONFETTI = [0xff6a8a, 0xffd45a, 0x70d0ff, 0xff90d0, 0x6af0a0, 0xffa050, 0xb388ff];
+
+/**
+ * Soft vinyl weather: pastel glitter motes, tumbling confetti/receipt scraps,
+ * and candy-colored wind ribbons — keeps the happy mood, sells the toy world.
+ */
 export class BreezeParticles {
   readonly points: THREE.Points;
   private positions: Float32Array;
   private velocities: Float32Array;
   private count: number;
+  private confetti!: THREE.Points;
+  private confPos: Float32Array;
+  private confVel: Float32Array;
+  private confCount: number;
   private ribbons: Array<{
     mesh: THREE.Line;
     baseX: number;
@@ -22,33 +32,69 @@ export class BreezeParticles {
     this.count = count;
     this.positions = new Float32Array(count * 3);
     this.velocities = new Float32Array(count * 3);
+    const colors = new Float32Array(count * 3);
+    const c = new THREE.Color();
     for (let i = 0; i < count; i++) {
       this.respawn(i, true);
+      c.setHex(GLITTER[i % GLITTER.length]!);
+      colors[i * 3] = c.r;
+      colors[i * 3 + 1] = c.g;
+      colors[i * 3 + 2] = c.b;
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(this.positions, 3));
+    geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
     const mat = new THREE.PointsMaterial({
-      color: 0xffffff,
-      size: 0.35,
+      size: 0.42,
       transparent: true,
-      opacity: 0.45,
+      opacity: 0.55,
       depthWrite: false,
       sizeAttenuation: true,
+      vertexColors: true,
+      blending: THREE.AdditiveBlending,
     });
     this.points = new THREE.Points(geo, mat);
     this.points.frustumCulled = false;
 
-    // Subtle wind stream ribbons that drift around the bag
-    const ribbonCount = 14;
+    // Tumbling pastel confetti / receipt scraps
+    this.confCount = Math.max(40, Math.floor(count * 0.55));
+    this.confPos = new Float32Array(this.confCount * 3);
+    this.confVel = new Float32Array(this.confCount * 3);
+    const confColors = new Float32Array(this.confCount * 3);
+    for (let i = 0; i < this.confCount; i++) {
+      this.respawnConfetti(i, true);
+      c.setHex(CONFETTI[i % CONFETTI.length]!);
+      confColors[i * 3] = c.r;
+      confColors[i * 3 + 1] = c.g;
+      confColors[i * 3 + 2] = c.b;
+    }
+    const confGeo = new THREE.BufferGeometry();
+    confGeo.setAttribute("position", new THREE.BufferAttribute(this.confPos, 3));
+    confGeo.setAttribute("color", new THREE.BufferAttribute(confColors, 3));
+    const confMat = new THREE.PointsMaterial({
+      size: 0.55,
+      transparent: true,
+      opacity: 0.72,
+      depthWrite: false,
+      sizeAttenuation: true,
+      vertexColors: true,
+    });
+    this.confetti = new THREE.Points(confGeo, confMat);
+    this.confetti.frustumCulled = false;
+    this.points.add(this.confetti);
+
+    // Candy wind stream ribbons
+    const ribbonCount = 16;
     const segs = 12;
+    const ribbonPalette = [0xffffff, 0xffd6f0, 0xd6f4ff, 0xfff0b8];
     for (let r = 0; r < ribbonCount; r++) {
       const rGeo = new THREE.BufferGeometry();
       const arr = new Float32Array(segs * 3);
       rGeo.setAttribute("position", new THREE.BufferAttribute(arr, 3));
       const rMat = new THREE.LineBasicMaterial({
-        color: r % 2 === 0 ? 0xffffff : 0xffe8b0,
+        color: ribbonPalette[r % ribbonPalette.length]!,
         transparent: true,
-        opacity: 0.24,
+        opacity: 0.28,
         depthWrite: false,
       });
       const line = new THREE.Line(rGeo, rMat);
@@ -78,6 +124,16 @@ export class BreezeParticles {
     }
   }
 
+  private respawnConfetti(i: number, initial = false): void {
+    const o = i * 3;
+    this.confPos[o] = (Math.random() - 0.5) * 52;
+    this.confPos[o + 1] = initial ? 4 + Math.random() * 26 : 22 + Math.random() * 10;
+    this.confPos[o + 2] = (Math.random() - 0.5) * 52;
+    this.confVel[o] = 0.35 + Math.random() * 0.9;
+    this.confVel[o + 1] = -0.55 - Math.random() * 0.85;
+    this.confVel[o + 2] = -0.25 + Math.random() * 0.5;
+  }
+
   update(dt: number, bagPos: THREE.Vector3, time: number): void {
     for (let i = 0; i < this.count; i++) {
       const o = i * 3;
@@ -92,9 +148,27 @@ export class BreezeParticles {
       if (lx > 35 || lx < -35 || ly > 40 || ly < 0.5 || lz > 35 || lz < -35) {
         this.respawn(i);
       }
-      void ly;
     }
     (this.points.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+
+    for (let i = 0; i < this.confCount; i++) {
+      const o = i * 3;
+      const flutter = Math.sin(time * 4.2 + i * 0.7) * 0.55;
+      this.confPos[o]! += (this.confVel[o]! + flutter) * dt;
+      this.confPos[o + 1]! += this.confVel[o + 1]! * dt;
+      this.confPos[o + 2]! +=
+        (this.confVel[o + 2]! + Math.cos(time * 3.1 + i) * 0.4) * dt;
+      if (
+        this.confPos[o + 1]! < 0.4 ||
+        this.confPos[o]! > 32 ||
+        this.confPos[o]! < -32 ||
+        this.confPos[o + 2]! > 32 ||
+        this.confPos[o + 2]! < -32
+      ) {
+        this.respawnConfetti(i);
+      }
+    }
+    (this.confetti.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
 
     for (let r = 0; r < this.ribbons.length; r++) {
       const rib = this.ribbons[r]!;

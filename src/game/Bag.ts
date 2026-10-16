@@ -52,9 +52,11 @@ export class Bag {
     if (q === "mobile") {
       mat.transmission = 0;
       mat.thickness = 0;
-      mat.clearcoat = 0.25;
-      mat.iridescence = 0.35;
-      mat.opacity = 0.84;
+      mat.clearcoat = 0.55;
+      mat.clearcoatRoughness = 0.2;
+      mat.iridescence = 0.45;
+      mat.roughness = 0.22;
+      mat.opacity = 0.86;
       mat.depthWrite = true;
       const back = this.backMesh.material as THREE.MeshPhysicalMaterial;
       back.transmission = 0;
@@ -250,24 +252,26 @@ export class Bag {
     pos.needsUpdate = true;
     geo.computeVertexNormals();
 
+    // Vinyl / polyethylene toy bag — glossy clearcoat + soft pastel iridescence
     const mat = new THREE.MeshPhysicalMaterial({
-      color: 0xf4f0e6,
+      color: 0xf7f3ea,
       transparent: true,
-      opacity: 0.8,
-      roughness: 0.22,
-      metalness: 0,
-      transmission: 0.52,
-      thickness: 0.36,
-      ior: 1.45,
-      clearcoat: 0.65,
-      clearcoatRoughness: 0.18,
-      iridescence: 0.55,
-      iridescenceIOR: 1.32,
-      sheen: 0.35,
-      sheenColor: new THREE.Color(0xfff0c8),
-      emissive: new THREE.Color(0x28241e),
-      emissiveIntensity: 0.22,
-      envMapIntensity: 1.25,
+      opacity: 0.82,
+      roughness: 0.12,
+      metalness: 0.02,
+      transmission: 0.48,
+      thickness: 0.42,
+      ior: 1.48,
+      clearcoat: 0.92,
+      clearcoatRoughness: 0.08,
+      iridescence: 0.78,
+      iridescenceIOR: 1.35,
+      sheen: 0.45,
+      sheenRoughness: 0.28,
+      sheenColor: new THREE.Color(0xffd6f0),
+      emissive: new THREE.Color(0x2a221c),
+      emissiveIntensity: 0.18,
+      envMapIntensity: 1.45,
       side: THREE.DoubleSide,
       depthWrite: false,
     });
@@ -287,13 +291,14 @@ export class Bag {
 
     this.handles = new THREE.Group();
     const handleMat = new THREE.MeshPhysicalMaterial({
-      color: 0xdcd8cc,
-      roughness: 0.32,
-      clearcoat: 0.45,
+      color: 0xe8e2d4,
+      roughness: 0.18,
+      clearcoat: 0.75,
+      clearcoatRoughness: 0.12,
       transparent: true,
-      opacity: 0.9,
+      opacity: 0.92,
       emissive: new THREE.Color(0x201c16),
-      emissiveIntensity: 0.2,
+      emissiveIntensity: 0.16,
     });
     for (const x of [-0.19, 0.19]) {
       const curve = new THREE.CatmullRomCurve3([

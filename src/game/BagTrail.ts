@@ -23,10 +23,10 @@ export class BagTrail {
     geo.setAttribute("age", new THREE.BufferAttribute(this.ages, 1));
 
     const mat = new THREE.PointsMaterial({
-      size: 0.45,
-      color: 0xfff0c8,
+      size: 0.48,
+      color: 0xffd6f0,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.58,
       depthWrite: false,
       sizeAttenuation: true,
       blending: THREE.AdditiveBlending,
@@ -64,7 +64,8 @@ export class BagTrail {
     const glow = THREE.MathUtils.clamp(speed / 18, 0.15, 1);
     mat.opacity = 0.25 + glow * 0.5;
     mat.size = 0.28 + glow * 0.35;
-    this._tmp.setHSL(0.12, 0.55, 0.65 + glow * 0.15);
+    // Soft pink↔cream iridescent wake (vinyl glitter)
+    this._tmp.setHSL(0.92 + glow * 0.06, 0.45, 0.7 + glow * 0.12);
     mat.color.copy(this._tmp);
   }
 }

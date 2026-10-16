@@ -89,22 +89,26 @@ export function makeBagNpc(
   const scale = opts.scale ?? 1;
   const color = opts.color ?? BAG_COLORS[Math.floor(Math.random() * BAG_COLORS.length)]!;
 
-  const bodyMat = new THREE.MeshLambertMaterial({
+  const bodyMat = new THREE.MeshPhysicalMaterial({
     color,
-    flatShading: true,
+    roughness: 0.22,
+    metalness: 0.04,
+    clearcoat: 0.7,
+    clearcoatRoughness: 0.16,
     transparent: true,
-    opacity: 0.92,
+    opacity: 0.9,
     side: THREE.DoubleSide,
   });
   const body = new THREE.Mesh(makeTakeoutBagGeometry(0.32), bodyMat);
   body.castShadow = true;
   g.add(body);
 
-  const handleMat = new THREE.MeshLambertMaterial({
-    color: 0xd0c8b8,
-    flatShading: true,
+  const handleMat = new THREE.MeshPhysicalMaterial({
+    color: 0xe0d8c8,
+    roughness: 0.25,
+    clearcoat: 0.55,
     transparent: true,
-    opacity: 0.9,
+    opacity: 0.92,
   });
   for (const x of [-0.16, 0.16]) {
     const curve = new THREE.CatmullRomCurve3([

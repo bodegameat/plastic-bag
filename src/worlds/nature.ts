@@ -9,25 +9,57 @@ function wrapNear(logicalX: number, logicalZ: number, bag: THREE.Vector3): { x: 
   return { x: logicalX + ox, z: logicalZ + oz };
 }
 
-/** Bold toy palette — Bruno Simon energy */
+/** Soft vinyl toybox palette — candy plastic, still pastel */
 export const TOY = {
-  grass: 0x3ecf6a,
-  grassDeep: 0x2aa85a,
-  dirt: 0xe8a050,
-  trunk: 0x8b5a3c,
-  canopy: [0x2ecf6a, 0x4ae080, 0x1db85a, 0x7aef90] as const,
-  rock: [0xd4c4b0, 0xc8b8a8, 0xb0a898] as const,
-  flower: [0xff5a7a, 0xffd040, 0xff80c0, 0x60c0ff, 0xff9040] as const,
+  grass: 0x48d978,
+  grassDeep: 0x2fba62,
+  dirt: 0xf0a858,
+  trunk: 0xffc878,
+  canopy: [0x3ee87a, 0x6af0a0, 0x2ad868, 0x9af0b8, 0x58e0c8] as const,
+  rock: [0xffe0f0, 0xd8f0ff, 0xfff0c8, 0xe0ffe8] as const,
+  flower: [0xff6a8a, 0xffd45a, 0xff90d0, 0x70d0ff, 0xffa050] as const,
   house: [0xff6b5a, 0xffd040, 0x5ad4ff, 0xb388ff, 0xff90a8] as const,
-  path: 0xf0b060,
-  sun: 0xffe066,
-  skyTop: 0x4eb8ff,
-  skyBot: 0xffe8b0,
-  fog: 0xa8d8f0,
-  ambient: 0x90c8ff,
-  hemiSky: 0xffe8a0,
-  hemiGround: 0x4ecf70,
+  path: 0xf4b868,
+  sun: 0xffe87a,
+  skyTop: 0x5ec0ff,
+  skyBot: 0xffecd0,
+  fog: 0xb0def4,
+  ambient: 0x9ad0ff,
+  hemiSky: 0xffecc0,
+  hemiGround: 0x58d880,
 };
+
+/** Lollipop toy tree: pastel trunk + glossy canopy blob (origin at base). */
+function makeToyTreeGeometry(): THREE.BufferGeometry {
+  const trunk = new THREE.CylinderGeometry(0.16, 0.22, 1.15, 8);
+  trunk.translate(0, 0.575, 0);
+  const canopy = new THREE.SphereGeometry(0.92, 10, 8);
+  canopy.translate(0, 1.65, 0);
+  const tPos = trunk.attributes.position!.array as Float32Array;
+  const cPos = canopy.attributes.position!.array as Float32Array;
+  const tNorm = trunk.attributes.normal!.array as Float32Array;
+  const cNorm = canopy.attributes.normal!.array as Float32Array;
+  const tIdx = trunk.index!.array;
+  const cIdx = canopy.index!.array;
+  const tVert = tPos.length / 3;
+  const positions = new Float32Array(tPos.length + cPos.length);
+  const normals = new Float32Array(tNorm.length + cNorm.length);
+  positions.set(tPos, 0);
+  positions.set(cPos, tPos.length);
+  normals.set(tNorm, 0);
+  normals.set(cNorm, tNorm.length);
+  const indices = new Uint32Array(tIdx.length + cIdx.length);
+  indices.set(tIdx, 0);
+  for (let i = 0; i < cIdx.length; i++) indices[tIdx.length + i] = (cIdx[i] as number) + tVert;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+  geo.setIndex(new THREE.BufferAttribute(indices, 1));
+  geo.computeBoundingSphere();
+  trunk.dispose();
+  canopy.dispose();
+  return geo;
+}
 
 function hash(i: number): number {
   const x = Math.sin(i * 127.1 + 311.7) * 43758.5453;
@@ -58,8 +90,9 @@ export class NatureField {
   constructor(mobile: boolean) {
     this.trees = this.makeLayer(
       mobile ? 180 : 260,
-      new THREE.CapsuleGeometry(0.75, 1.5, 4, 8),
+      makeToyTreeGeometry(),
       TOY.canopy[0],
+      true,
       true,
     );
     this.colorize(this.trees, TOY.canopy);
@@ -68,19 +101,22 @@ export class NatureField {
       new THREE.DodecahedronGeometry(0.4, 0),
       TOY.rock[0],
       true,
+      true,
     );
     this.colorize(this.rocks, TOY.rock);
     this.flowers = this.makeLayer(
       mobile ? 520 : 780,
-      new THREE.SphereGeometry(0.16, 5, 4),
+      new THREE.SphereGeometry(0.16, 6, 5),
       TOY.flower[0],
       false,
+      true,
     );
     this.colorize(this.flowers, TOY.flower);
     this.tufts = this.makeLayer(
       mobile ? 640 : 960,
       new THREE.ConeGeometry(0.14, 0.42, 5),
       TOY.grassDeep,
+      false,
       false,
     );
 
@@ -92,8 +128,25 @@ export class NatureField {
     geo: THREE.BufferGeometry,
     color: number,
     castShadow: boolean,
+    vinyl: boolean,
   ): Layer {
-    const mat = new THREE.MeshLambertMaterial({ color, flatShading: true });
+    const mat = vinyl
+      ? new THREE.MeshPhysicalMaterial({
+          color,
+          roughness: 0.28,
+          metalness: 0.06,
+          clearcoat: 0.8,
+          clearcoatRoughness: 0.18,
+          sheen: 0.25,
+          sheenColor: new THREE.Color(0xffffff),
+          flatShading: false,
+        })
+      : new THREE.MeshStandardMaterial({
+          color,
+          roughness: 0.55,
+          metalness: 0.02,
+          flatShading: true,
+        });
     const mesh = new THREE.InstancedMesh(geo, mat, count);
     mesh.castShadow = castShadow;
     mesh.receiveShadow = true;
@@ -198,8 +251,8 @@ export class NatureField {
         const x = hub.x + Math.cos(ang) * r;
         const z = hub.z + Math.sin(ang) * r;
         if (tooCloseToHub(x, z)) continue;
-        const s = 0.9 + hash(ti + 40) * 1.0;
-        this.writeInstance(this.trees, ti++, x, z, s, s * 1.35, [s * 0.7, s, s * 0.7]);
+        const s = 0.85 + hash(ti + 40) * 0.95;
+        this.writeInstance(this.trees, ti++, x, z, s, 0, [s * 0.92, s, s * 0.92]);
       }
 
       // Rock pile near grove
@@ -255,7 +308,7 @@ export class NatureField {
 
         if (ti < this.trees.count && s % 2 === 0) {
           const sc = 0.7 + hash(ti) * 0.65;
-          this.writeInstance(this.trees, ti++, x, z, sc, sc * 1.35, [sc * 0.7, sc, sc * 0.7]);
+          this.writeInstance(this.trees, ti++, x, z, sc, 0, [sc * 0.92, sc, sc * 0.92]);
         }
         // Soft hedge tufts along path edge
         for (let j = 0; j < 2; j++) {
@@ -289,7 +342,7 @@ export class NatureField {
         const z = cz + (hash(clump * 41 + k) - 0.5) * 6;
         if (tooCloseToHub(x, z)) continue;
         const s = 0.75 + hash(ti) * 0.85;
-        this.writeInstance(this.trees, ti++, x, z, s, s * 1.35, [s * 0.7, s, s * 0.7]);
+        this.writeInstance(this.trees, ti++, x, z, s, 0, [s * 0.92, s, s * 0.92]);
       }
       for (let k = 0; k < 10 && fi < this.flowers.count; k++) {
         const x = cx + (hash(clump * 50 + k) - 0.5) * 5;
@@ -318,7 +371,7 @@ export class NatureField {
   update(time: number, bagPos: THREE.Vector3, fogFar: number): void {
     // Floor so near-field never goes barren when fog pulls in
     const cull = Math.max(140, fogFar * 1.15);
-    this.updateLayer(this.trees, time, bagPos, cull, true, (s) => [s * 0.7, s, s * 0.7]);
+    this.updateLayer(this.trees, time, bagPos, cull, true, (s) => [s * 0.92, s, s * 0.92]);
     this.updateLayer(this.rocks, time, bagPos, cull, false);
     this.updateLayer(this.flowers, time, bagPos, cull, false);
     this.updateLayer(this.tufts, time, bagPos, cull * 0.95, true, (s) => [s, s, s], 2.2, 0.12);
